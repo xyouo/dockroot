@@ -1,6 +1,6 @@
-# DockRoot 容器 for KernelSU
+# DockRoot 容器
 
-这是一个实验性的 KernelSU/APatch/Magisk 模块，用于在已 Root 的 ARM64 Android 设备上直接运行 DockRoot 与 ruri，不依赖额外的 Debian/Ubuntu chroot 模块。
+这是一个适用于 KernelSU、APatch 和 Magisk 的实验性 Root 模块，用于在已 Root 的 ARM64 Android 设备上直接运行 OCI/Docker 镜像，不依赖额外的 Debian/Ubuntu chroot 模块。
 
 它不是完整 Docker Engine。DockRoot 会拉取 OCI/Docker 镜像、解包为 rootfs，再通过 ruri 启动。容器使用宿主网络，不支持 Docker bridge、`-p` 端口映射、Docker Compose 或 Docker API。
 
@@ -24,13 +24,13 @@
 刷入模块并重启手机，然后在 Termux 等终端执行：
 
 ```sh
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl pull alpine:latest alpine'
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl run alpine /bin/ash'
+su -c 'drctl pull alpine:latest alpine'
+su -c 'drctl run alpine /bin/ash'
 ```
 
 `pull` 会在本机第一次使用时自动下载并校验运行环境。`doctor` 和 `install-runtime` 仅用于诊断或手动预安装，不是每次安装模块都必须执行。
 
-重启后模块也会把 `drctl` 放入 root 命令路径，因此通常可以简写为 `su -c 'drctl doctor'`。上面的完整路径便于排除 PATH 差异。
+重启后模块会把 `drctl` 放入 root 命令路径，本文命令均使用 `su -c 'drctl …'` 的简洁写法。
 
 进入 Alpine 后可测试：
 
@@ -43,16 +43,16 @@ exit
 后台运行、查看状态和停止：
 
 ```sh
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl run -d alpine'
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl ps alpine'
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl stop alpine'
+su -c 'drctl run -d alpine'
+su -c 'drctl ps alpine'
+su -c 'drctl stop alpine'
 ```
 
 设置开机自启：
 
 ```sh
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl autostart add alpine'
-su -c '/data/adb/modules/dockroot_ksu/bin/drctl autostart list'
+su -c 'drctl autostart add alpine'
+su -c 'drctl autostart list'
 ```
 
 ## Compose Lite 固定配置
@@ -84,14 +84,14 @@ DockRoot 只有 host 网络，因此不支持 Compose 的 `ports`、独立网络
 常用命令：
 
 ```sh
-drctl stack list
-drctl stack path
-drctl apply openlist
-drctl up openlist
-drctl down openlist
-drctl restart openlist
-drctl status openlist
-drctl logs openlist 100
+su -c 'drctl stack list'
+su -c 'drctl stack path'
+su -c 'drctl apply openlist'
+su -c 'drctl up openlist'
+su -c 'drctl down openlist'
+su -c 'drctl restart openlist'
+su -c 'drctl status openlist'
+su -c 'drctl logs openlist 100'
 ```
 
 `apply` 只拉取缺失镜像并更新固定配置，不会启动长期服务。`up` 会应用配置后后台启动。修改 `.conf` 后再次执行 `drctl up <容器名>` 即可生效。
@@ -218,6 +218,8 @@ su -c 'drctl status cloudflared'
 ## 模块更新
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
+
+为保证旧版本能够被安全覆盖升级，内部模块 ID 仍保留为历史值 `dockroot_ksu`。它用于管理器识别同一个模块，也决定模块内部安装路径；日常使用无需关心，不影响仓库名、显示名、ZIP 名称或数据目录。
 
 ## 数据与配置
 

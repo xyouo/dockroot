@@ -30,5 +30,5 @@ if [ ! -f "$state_dir/autostart.list" ]; then
 fi
 
 ui_print "- 安装完成"
-ui_print "- 首次使用：su -c '$MODPATH/bin/drctl install-runtime'"
-ui_print "- 帮助：su -c '$MODPATH/bin/drctl help'"
+ui_print "- 重启后首次使用：su -c 'drctl install-runtime'"
+ui_print "- 帮助：su -c 'drctl help'"
