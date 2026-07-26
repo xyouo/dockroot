@@ -1,0 +1,10 @@
+.gitattributes text eol=lf
+*.sh text eol=lf
+*.env text eol=lf
+*.prop text eol=lf
+*.conf text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+module/bin/* text eol=lf
+module/system/bin/* text eol=lf

@@ -11,7 +11,8 @@
 - 拉取、运行、停止和查看容器。
 - 查看 ruri 原始运行日志。
 - 配置容器开机自启。
-- 使用 Compose Lite 配置文件声明镜像、卷、环境变量和自启策略。
+- 使用 Compose Lite 配置文件声明镜像、卷、环境变量、自定义启动命令和自启策略。
+- 提供 OpenList、青龙与 Cloudflare Tunnel 内置模板。
 - 输出架构、SELinux、文件系统和挂载环境诊断。
 - 通过独立 mount namespace 为 DockRoot 提供 DNS，不修改 Android 全局网络配置。
 - 卸载模块时保留容器数据，防止误删。
@@ -70,8 +71,13 @@ su -c '/data/adb/modules/dockroot_ksu/bin/drctl autostart list'
 - `ENV=KEY=VALUE`：可以重复填写。
 - `HOSTNAME=`：可选容器主机名。
 - `WORKDIR=`：可选容器工作目录，必须是绝对路径。
+- `COMMAND=`：可选启动程序，必须是容器内绝对路径，只能填写一次。
+- `ARG=`：传给 `COMMAND` 的单个参数，可以重复填写；即使参数包含空格或 `=` 也不会经过 shell 展开。
+- `APPLY_COMMAND=`、`APPLY_ARG=`：可选的一次性应用命令。适用于没有 `/bin/true` 的 distroless 镜像。
+- `REQUIRED_FILE=`：启动前必须存在且非空的宿主机文件。
 - `CHECK_PORT=`：启动前检查冲突、启动后确认监听，可以重复填写。
 - `HEALTH_URL=`：启动后的本机 HTTP 健康检查地址。
+- `READY_URL=`：仅在 `status` 中显示外部连接是否就绪，不会因断网而终止仍在重连的进程。
 
 DockRoot 只有 host 网络，因此不支持 Compose 的 `ports`、独立网络、`depends_on` 等字段。镜像监听的端口会直接占用手机端口。
 
@@ -155,21 +161,56 @@ su -c 'drctl stack create qinglong'
 su -c 'drctl stack create qinglong 5900 5501'
 ```
 
+### Cloudflare Tunnel 示例
+
+官方 `cloudflare/cloudflared:latest` 镜像支持 ARM64。DockRoot 使用 host 网络，因此 cloudflared 可以直接访问手机上的服务，例如青龙模板默认的 `http://127.0.0.1:5700`（改过端口时以实际配置为准）和 OpenList `http://127.0.0.1:5244`；它不会占用这两个业务端口。
+
+推荐在 Cloudflare 控制台创建 remotely-managed Tunnel，并在控制台配置 Public Hostname。创建完成后，只复制安装命令末尾以 `eyJ...` 开头的 Tunnel token。不要把 token 写入仓库、Issue、Release 或聊天记录。
+
+在手机创建模板并隐藏输入 token：
+
+```sh
+su -c 'drctl stack create cloudflared'
+su -c 'drctl stack secret cloudflared'
+```
+
+第二条命令的输入不会显示。token 会单独保存到 `/data/adb/dockroot/volumes/cloudflared/token`，不会写入 Stack 配置或进程参数；该目录以只读方式挂载进容器。
+
+然后启动并检查：
+
+```sh
+su -c 'drctl up cloudflared'
+su -c 'drctl status cloudflared'
+su -c 'drctl logs cloudflared 100'
+```
+
+默认使用仅监听本机的 `49312` 作为 metrics/就绪检查端口。若它被占用，可在创建模板时换一个端口：
+
+```sh
+su -c 'drctl stack create cloudflared 49313'
+```
+
+Tunnel 本身不需要开放入站端口，但设备网络需要允许 cloudflared 出站访问 Cloudflare 的 `7844/UDP`（QUIC）和 `7844/TCP`（HTTP/2 回退）。`status` 中的 `ready[...]=connected` 表示已连接 Cloudflare；断网时会显示 `disconnected`，但模块不会杀掉进程，cloudflared 会继续自动重连。相关说明见 [Cloudflare Tunnel 运行参数](https://developers.cloudflare.com/tunnel/advanced/run-parameters/) 与 [防火墙要求](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)。
+
+如果把青龙暴露到公网，建议同时配置 Cloudflare Access，避免只依赖面板自身登录。
+
 ## 可靠启动与状态检查
 
 `up`、`restart` 和开机自启共用同一套生命周期：
 
-1. 停止旧实例并等待 PID 真正退出。
-2. 应用声明式配置。
-3. 检查所有 `CHECK_PORT` 是否被其他进程占用。
-4. 启动容器。
-5. 验证进程、每个持久化卷、端口和 `HEALTH_URL`。
+1. 先检查 `REQUIRED_FILE`，缺失时保留当前正常实例。
+2. 停止旧实例并等待 PID 真正退出。
+3. 应用声明式配置。
+4. 检查所有 `CHECK_PORT` 是否被其他进程占用。
+5. 启动容器。
+6. 验证进程、每个持久化卷、端口和 `HEALTH_URL`。
 
-任何一步失败都会返回非零退出码并说明原因，不再把“命令已发出”当成“容器启动成功”。诊断示例：
+`READY_URL` 只用于 `status` 展示，不参与启动成败判断，适合 cloudflared 这类需要等待外部网络并能自行重连的服务。其他步骤失败都会返回非零退出码并说明原因，不再把“命令已发出”当成“容器启动成功”。诊断示例：
 
 ```sh
 su -c 'drctl status openlist'
 su -c 'drctl status qinglong'
+su -c 'drctl status cloudflared'
 ```
 
 模块自身日志与容器 `ruri.log` 默认超过 1 MiB 后保留为 `.1` 并重新记录。阈值可在 `/data/adb/dockroot/config.env` 中通过 `MAX_LOG_SIZE_KB` 修改。

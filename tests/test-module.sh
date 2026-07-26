@@ -8,6 +8,7 @@ required=(
   module/service.sh
   module/bin/drctl
   module/bin/dockroot-exec
+  module/examples/cloudflared.conf
   module/examples/openlist.conf
   module/examples/qinglong.conf
   module/system/bin/drctl
@@ -28,8 +29,11 @@ grep -q '只支持 host 网络' module/bin/drctl
 grep -q '^IMAGE=openlistteam/openlist:latest$' module/examples/openlist.conf
 grep -q '^CHECK_PORT=5244$' module/examples/openlist.conf
 grep -q '^ENV=QlGrpcPort=__QL_GRPC_PORT__$' module/examples/qinglong.conf
+grep -q '^IMAGE=cloudflare/cloudflared:latest$' module/examples/cloudflared.conf
+grep -q '^COMMAND=/usr/local/bin/cloudflared$' module/examples/cloudflared.conf
+grep -q '^ARG=--token-file$' module/examples/cloudflared.conf
 grep -q '^updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json$' module/module.prop
-grep -q '"version": "v0.3.1"' update.json
+grep -q '"version": "v0.4.0"' update.json
 
 bash -n module/customize.sh
 bash -n module/service.sh

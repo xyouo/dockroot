@@ -294,6 +294,10 @@ apply_stack() {
 
   stack_image=
   stack_autostart=0
+  stack_command=
+  stack_apply_command=
+  stack_arg_seen=0
+  stack_apply_arg_seen=0
   set -- run --renew
   while IFS='=' read -r key value; do
     key="$(printf '%s' "$key" | tr -d '\r')"
@@ -309,12 +313,21 @@ apply_stack() {
         source_path=${value%%:*}
         remainder=${value#*:}
         target_path=${remainder%%:*}
+        case "$remainder" in
+          *:ro) volume_mode=ro ;;
+          *:*) err "VOLUME 只支持可选的 :ro 模式：$value"; return 1 ;;
+          *) volume_mode=rw ;;
+        esac
         case "$source_path" in /*) ;; *) err "卷来源必须是绝对路径：$value"; return 1 ;; esac
         case "$target_path" in /*) ;; *) err "卷目标必须是绝对路径：$value"; return 1 ;; esac
         mkdir -p "$source_path" || return 1
         # 部分镜像（如 OpenList 4.1+）会在容器内切换到非 root UID。
         # 上级 /data/adb/dockroot 仍为 0700，放宽挂载点本身不会暴露给普通 Android 应用。
-        chmod 0777 "$source_path" 2>/dev/null || true
+        if [ "$volume_mode" = ro ]; then
+          chmod 0755 "$source_path" 2>/dev/null || true
+        else
+          chmod 0777 "$source_path" 2>/dev/null || true
+        fi
         set -- "$@" -v "$value"
         ;;
       ENV)
@@ -322,6 +335,25 @@ apply_stack() {
         ;;
       HOSTNAME) [ -n "$value" ] && set -- "$@" --hostname "$value" ;;
       WORKDIR) case "$value" in /*) set -- "$@" -w "$value" ;; *) err 'WORKDIR 必须是绝对路径'; return 1 ;; esac ;;
+      COMMAND)
+        [ -z "$stack_command" ] || { err 'COMMAND 只能填写一次'; return 1; }
+        case "$value" in /*) stack_command=$value ;; *) err 'COMMAND 必须是容器内绝对路径'; return 1 ;; esac
+        ;;
+      ARG)
+        [ -n "$value" ] || { err 'ARG 不能为空'; return 1; }
+        stack_arg_seen=1
+        ;;
+      APPLY_COMMAND)
+        [ -z "$stack_apply_command" ] || { err 'APPLY_COMMAND 只能填写一次'; return 1; }
+        case "$value" in /*) stack_apply_command=$value ;; *) err 'APPLY_COMMAND 必须是容器内绝对路径'; return 1 ;; esac
+        ;;
+      APPLY_ARG)
+        [ -n "$value" ] || { err 'APPLY_ARG 不能为空'; return 1; }
+        stack_apply_arg_seen=1
+        ;;
+      REQUIRED_FILE)
+        case "$value" in /*) ;; *) err 'REQUIRED_FILE 必须是宿主机绝对路径'; return 1 ;; esac
+        ;;
       CHECK_PORT)
         case "$value" in ''|*[!0-9]*) err "CHECK_PORT 必须是数字：$value"; return 1 ;; esac
         if [ "$value" -lt 1 ] || [ "$value" -gt 65535 ]; then
@@ -329,10 +361,10 @@ apply_stack() {
           return 1
         fi
         ;;
-      HEALTH_URL)
+      HEALTH_URL|READY_URL)
         case "$value" in
           http://127.0.0.1:*|http://localhost:*) ;;
-          *) err "HEALTH_URL 仅允许本机 HTTP 地址：$value"; return 1 ;;
+          *) err "$key 仅允许本机 HTTP 地址：$value"; return 1 ;;
         esac
         ;;
       *) err "不支持的配置项：$key"; return 1 ;;
@@ -340,6 +372,14 @@ apply_stack() {
   done < "$file"
 
   [ -n "$stack_image" ] || { err "配置缺少 IMAGE：$file"; return 1; }
+  if [ "$stack_arg_seen" = 1 ] && [ -z "$stack_command" ]; then
+    err '配置含有 ARG，但缺少 COMMAND'
+    return 1
+  fi
+  if [ "$stack_apply_arg_seen" = 1 ] && [ -z "$stack_apply_command" ]; then
+    err '配置含有 APPLY_ARG，但缺少 APPLY_COMMAND'
+    return 1
+  fi
   if [ "$name" = openlist ] && [ "$stack_image" = openlistteam/openlist:latest-aio ]; then
     stack_image=openlistteam/openlist:latest
     sed -i 's|^IMAGE=openlistteam/openlist:latest-aio$|IMAGE=openlistteam/openlist:latest|' "$file"
@@ -349,8 +389,19 @@ apply_stack() {
     pull_image "$stack_image" "$name" || return 1
   fi
 
-  # 仅更新 ruri.conf；用 true 覆盖本次命令，避免 apply 启动长期服务。
-  set -- "$@" "$name" /bin/true
+  # 仅更新 ruri.conf；执行一次性命令，避免 apply 启动长期服务。
+  # -- 用于隔开 DockRoot 参数，防止容器命令中的 -c/--metrics 等被 Cobra 误解析。
+  set -- "$@" "$name" --
+  if [ -n "$stack_apply_command" ]; then
+    set -- "$@" "$stack_apply_command"
+    while IFS='=' read -r key value; do
+      key="$(printf '%s' "$key" | tr -d '\r')"
+      value="$(printf '%s' "$value" | tr -d '\r')"
+      [ "$key" = APPLY_ARG ] && set -- "$@" "$value"
+    done < "$file"
+  else
+    set -- "$@" /bin/true
+  fi
   run_dockroot "$@" || return 1
   if [ "$stack_autostart" = 1 ]; then
     autostart_add "$name" >/dev/null
@@ -446,6 +497,21 @@ check_stack_ports_available() {
   done
 }
 
+required_files_ready() {
+  name=$1
+  file="$(stack_file "$name")"
+  [ -r "$file" ] || { err "配置不存在：$file"; return 1; }
+  while IFS='=' read -r key value; do
+    key="$(printf '%s' "$key" | tr -d '\r')"
+    value="$(printf '%s' "$value" | tr -d '\r')"
+    [ "$key" = REQUIRED_FILE ] || continue
+    if [ ! -f "$value" ] || [ ! -s "$value" ]; then
+      err "必需文件不存在或为空：$value"
+      return 1
+    fi
+  done < "$file"
+}
+
 verify_stack_running() {
   name=$1
   waited=0
@@ -475,10 +541,22 @@ start_stack() {
   name=${1:-}
   valid_name "$name" || { err '请提供有效配置名'; return 1; }
   require_runtime || return 1
+  required_files_ready "$name" || return 1
   stop_stack "$name" || return 1
   check_stack_ports_available "$name" || return 1
   rotate_log "$DATA_ROOT/$name/ruri.log"
-  if ! run_dockroot run -d "$name"; then
+  set -- run -d "$name"
+  stack_command="$(stack_values "$name" COMMAND | head -n 1)"
+  if [ -n "$stack_command" ]; then
+    set -- "$@" -- "$stack_command"
+    file="$(stack_file "$name")"
+    while IFS='=' read -r key value; do
+      key="$(printf '%s' "$key" | tr -d '\r')"
+      value="$(printf '%s' "$value" | tr -d '\r')"
+      [ "$key" = ARG ] && set -- "$@" "$value"
+    done < "$file"
+  fi
+  if ! run_dockroot "$@"; then
     err "容器启动命令失败：$name"
     return 1
   fi
@@ -492,6 +570,8 @@ start_stack() {
 
 up_stack() {
   name=${1:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  required_files_ready "$name" || return 1
   stop_stack "$name" || return 1
   apply_stack "$name" || return 1
   start_stack "$name"
@@ -530,6 +610,17 @@ status_stack() {
       ok=0
     fi
   done
+  while IFS='=' read -r key value; do
+    key="$(printf '%s' "$key" | tr -d '\r')"
+    value="$(printf '%s' "$value" | tr -d '\r')"
+    [ "$key" = REQUIRED_FILE ] || continue
+    if [ -f "$value" ] && [ -s "$value" ]; then
+      printf 'required_file[%s]=ready\n' "$value"
+    else
+      printf 'required_file[%s]=missing\n' "$value"
+      ok=0
+    fi
+  done < "$file"
   for port in $(stack_values "$name" CHECK_PORT); do
     if port_is_listening "$port"; then
       printf 'port[%s]=listening\n' "$port"
@@ -543,6 +634,14 @@ status_stack() {
       printf 'health[%s]=ok\n' "$url"
     else
       printf 'health[%s]=failed\n' "$url"
+      ok=0
+    fi
+  done
+  for url in $(stack_values "$name" READY_URL); do
+    if health_url_ok "$url"; then
+      printf 'ready[%s]=connected\n' "$url"
+    else
+      printf 'ready[%s]=disconnected\n' "$url"
       ok=0
     fi
   done
@@ -575,16 +674,92 @@ create_stack() {
         return 1
       fi
       ;;
-    *) err '当前内置模板：openlist、qinglong'; return 1 ;;
+    cloudflared)
+      target="$STACK_DIR/cloudflared.conf"
+      source="$MODDIR/examples/cloudflared.conf"
+      metrics_port=${option:-49312}
+      case "$metrics_port" in ''|*[!0-9]*) err 'cloudflared 健康检查端口必须是 1-65535 的数字'; return 1 ;; esac
+      if [ "$metrics_port" -lt 1 ] || [ "$metrics_port" -gt 65535 ]; then
+        err 'cloudflared 健康检查端口必须在 1-65535 之间'
+        return 1
+      fi
+      ;;
+    *) err '当前内置模板：openlist、qinglong、cloudflared'; return 1 ;;
   esac
   [ ! -e "$target" ] || { err "配置已存在，不会覆盖：$target"; return 1; }
   cp "$source" "$target" || return 1
   if [ "$template" = qinglong ]; then
     sed -i "s|__QL_PORT__|$port|g" "$target"
     sed -i "s|__QL_GRPC_PORT__|$grpc_port|g" "$target"
+  elif [ "$template" = cloudflared ]; then
+    sed -i "s|__METRICS_PORT__|$metrics_port|g" "$target"
+    mkdir -p "$VOLUME_DIR/cloudflared" || return 1
+    chmod 0700 "$VOLUME_DIR/cloudflared" 2>/dev/null || true
   fi
   chmod 0600 "$target"
   msg "已创建配置：$target"
+  if [ "$template" = cloudflared ]; then
+    msg "下一步先执行：$0 stack secret cloudflared"
+  fi
+}
+
+set_stack_secret() {
+  name=${1:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  ensure_state || return 1
+  file="$(stack_file "$name")"
+  [ -r "$file" ] || { err "配置不存在：$file"; return 1; }
+  secret_file="$(stack_values "$name" REQUIRED_FILE | head -n 1)"
+  [ -n "$secret_file" ] || { err "配置没有 REQUIRED_FILE：$file"; return 1; }
+  case "/$secret_file/" in
+    */../*|*/./*) err '秘密文件路径不能包含 . 或 .. 路径段'; return 1 ;;
+  esac
+  case "$secret_file" in
+    "$VOLUME_DIR/$name/"*) ;;
+    *) err "出于安全考虑，只允许写入 $VOLUME_DIR/$name 内的秘密文件"; return 1 ;;
+  esac
+
+  secret_dir=${secret_file%/*}
+  mkdir -p "$secret_dir" || return 1
+  secret=
+  secret_tty=0
+  if [ -t 0 ] && have_cmd stty; then
+    printf '请粘贴 Tunnel token（输入不会显示），然后按回车：' >&2
+    stty -echo
+    secret_tty=1
+    trap 'stty echo 2>/dev/null; printf "\n" >&2; exit 130' HUP INT TERM
+  else
+    printf '请通过标准输入提供秘密内容：' >&2
+  fi
+  IFS= read -r secret
+  read_status=$?
+  if [ "$secret_tty" = 1 ]; then
+    stty echo 2>/dev/null || true
+    printf '\n' >&2
+    trap - HUP INT TERM
+  fi
+  [ "$read_status" = 0 ] || { err '未能读取秘密内容'; return 1; }
+  secret="$(printf '%s' "$secret" | tr -d '\r')"
+  case "$secret" in
+    ''|*[[:space:]]*) err '秘密内容不能为空或包含空白字符'; unset secret; return 1 ;;
+  esac
+
+  temp="$secret_file.tmp.$$"
+  umask 077
+  if ! printf '%s\n' "$secret" > "$temp"; then
+    unset secret
+    rm -f "$temp"
+    return 1
+  fi
+  unset secret
+  # /data/adb/dockroot 上级目录仅 root 可进入；文件需允许镜像内的 nonroot 用户读取。
+  if ! chmod 0644 "$temp" || ! mv -f "$temp" "$secret_file"; then
+    rm -f "$temp"
+    err "秘密文件写入失败：$secret_file"
+    return 1
+  fi
+  msg "秘密已保存：$secret_file"
+  msg "执行 $0 up $name 使其生效"
 }
 
 list_stacks() {
@@ -739,8 +914,10 @@ DockRoot 容器模块（实验性）
   autostart add <容器名>           加入开机自启
   autostart remove <容器名>        移除开机自启
   autostart list                  查看开机自启列表
-  stack create openlist           创建标准完整版 OpenList 配置模板
+  stack create openlist                创建标准完整版 OpenList 配置模板
   stack create qinglong [HTTP] [gRPC]  创建青龙模板，默认 5700/5501
+  stack create cloudflared [METRICS]   创建 Cloudflare Tunnel 模板，默认 49312
+  stack secret <配置名>                隐藏输入并保存模板所需的秘密文件
   stack list                      查看声明式配置
   apply <配置名>                  应用固定配置但不启动
   up <配置名>                     应用配置并后台启动
@@ -772,9 +949,10 @@ main() {
       [ $# -eq 0 ] || shift
       case "$sub" in
         create) create_stack "${1:-}" "${2:-}" "${3:-}" ;;
+        secret) set_stack_secret "${1:-}" ;;
         list) list_stacks ;;
         path) ensure_state; printf '%s\n' "$STACK_DIR" ;;
-        *) err '可用子命令：create、list、path'; return 1 ;;
+        *) err '可用子命令：create、secret、list、path'; return 1 ;;
       esac
       ;;
     pull) pull_image "$@" ;;

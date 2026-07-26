@@ -1,7 +1,7 @@
 id=dockroot_ksu
 name=DockRoot 容器 for KernelSU
-version=v0.3.1
-versionCode=301
+version=v0.4.0
+versionCode=400
 author=xyouo
 description=在已 Root 的 ARM64 Android 设备上直接运行 DockRoot/ruri 容器（实验性）
 updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json

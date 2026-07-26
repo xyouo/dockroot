@@ -1,6 +1,6 @@
 {
-  "version": "v0.3.1",
-  "versionCode": 301,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.3.1/dockroot-v0.3.1.zip",
-  "changelog": "仓库迁移至 xyouo/dockroot，并同步在线更新地址和模块 ZIP 名称；运行环境保持当前已验证版本。"
+  "version": "v0.4.0",
+  "versionCode": 400,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.4.0/dockroot-v0.4.0.zip",
+  "changelog": "新增官方 ARM64 cloudflared 模板、隐藏输入的 Tunnel token、只读凭据挂载与断网自重连状态检查；Compose Lite 新增安全的自定义命令参数与必需文件预检。"
 }
