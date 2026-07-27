@@ -692,10 +692,10 @@ list_examples() {
 }
 
 copy_stack_example() {
-  [ "$#" -ge 1 ] && [ "$#" -le 2 ] || {
-    err '用法：stack example <示例> [配置名]'
-    return 1
-  }
+  case "$#" in
+    1|2) ;;
+    *) err '用法：stack example <示例> [配置名]'; return 1 ;;
+  esac
   example=${1:-}
   name=${2:-$example}
   valid_name "$example" || { err '请提供有效示例名'; return 1; }
