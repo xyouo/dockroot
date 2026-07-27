@@ -10,7 +10,7 @@ on:
       version:
         description: 模块版本（不含 v）
         required: false
-        default: 0.4.1
+        default: 0.5.0
 
 permissions:
   contents: read
@@ -27,7 +27,7 @@ jobs:
       - name: ShellCheck
         run: |
           shellcheck -s sh module/customize.sh module/service.sh module/uninstall.sh
-          shellcheck -s sh module/bin/drctl module/system/bin/drctl
+          shellcheck -s sh module/bin/drctl module/bin/migrate-module-id module/system/bin/drctl
           shellcheck -s bash scripts/package.sh tests/*.sh
 
       - name: 运行测试
@@ -40,7 +40,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="${{ inputs.version || '0.4.1' }}"
+            version="${{ inputs.version || '0.5.0' }}"
           fi
           IFS=. read -r major minor patch <<< "$version"
           code=$((major * 10000 + minor * 100 + patch))

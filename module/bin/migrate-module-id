@@ -1,0 +1,109 @@
+#!/system/bin/sh
+
+set -u
+
+NEW_MODPATH=${1:-}
+ADB_DIR=${2:-/data/adb}
+LEGACY_ID=dockroot_ksu
+NEW_ID=dockroot
+CREATED_MARKERS=
+LEGACY_FOUND=0
+PRESERVE_DISABLED=0
+
+err() {
+  printf '%s\n' "$*" >&2
+}
+
+remember_created() {
+  marker=$1
+  if [ -n "$CREATED_MARKERS" ]; then
+    CREATED_MARKERS="$CREATED_MARKERS
+$marker"
+  else
+    CREATED_MARKERS=$marker
+  fi
+}
+
+create_marker() {
+  marker=$1
+  [ -e "$marker" ] && return 0
+  : > "$marker" || return 1
+  remember_created "$marker"
+}
+
+rollback_markers() {
+  [ -n "$CREATED_MARKERS" ] || return 0
+  printf '%s\n' "$CREATED_MARKERS" |
+    while IFS= read -r marker; do
+      [ -n "$marker" ] && rm -f "$marker"
+    done
+}
+
+validate_module_id() {
+  module_dir=$1
+  expected_id=$2
+  [ ! -L "$module_dir" ] || return 1
+  [ -f "$module_dir/module.prop" ] || return 1
+  [ ! -L "$module_dir/module.prop" ] || return 1
+  grep -qx "id=$expected_id" "$module_dir/module.prop"
+}
+
+mark_legacy_dir() {
+  legacy_dir=$1
+  [ -d "$legacy_dir" ] || return 0
+  LEGACY_FOUND=1
+
+  if ! validate_module_id "$legacy_dir" "$LEGACY_ID"; then
+    err "旧模块目录身份校验失败：$legacy_dir"
+    return 1
+  fi
+
+  if [ -f "$legacy_dir/disable" ] &&
+     [ ! -f "$legacy_dir/.dockroot-migration-disable" ]; then
+    PRESERVE_DISABLED=1
+  fi
+
+  create_marker "$legacy_dir/remove" || {
+    err "无法标记旧模块待移除：$legacy_dir"
+    return 1
+  }
+
+  if [ ! -e "$legacy_dir/disable" ]; then
+    create_marker "$legacy_dir/disable" || {
+      err "无法禁用旧模块：$legacy_dir"
+      return 1
+    }
+    create_marker "$legacy_dir/.dockroot-migration-disable" || {
+      err "无法记录旧模块迁移状态：$legacy_dir"
+      return 1
+    }
+  fi
+}
+
+if [ -z "$NEW_MODPATH" ] ||
+   ! validate_module_id "$NEW_MODPATH" "$NEW_ID"; then
+  err '新模块身份校验失败'
+  exit 1
+fi
+
+if ! mark_legacy_dir "$ADB_DIR/modules/$LEGACY_ID" ||
+   ! mark_legacy_dir "$ADB_DIR/modules_update/$LEGACY_ID"; then
+  rollback_markers
+  exit 1
+fi
+
+if [ "$LEGACY_FOUND" -eq 0 ]; then
+  printf 'fresh\n'
+  exit 0
+fi
+
+if [ "$PRESERVE_DISABLED" -eq 1 ]; then
+  if ! create_marker "$NEW_MODPATH/disable"; then
+    err '无法继承旧模块的禁用状态'
+    rollback_markers
+    exit 1
+  fi
+  printf 'migrated-disabled\n'
+else
+  printf 'migrated\n'
+fi

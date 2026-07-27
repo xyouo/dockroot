@@ -1,7 +1,7 @@
-id=dockroot_ksu
+id=dockroot
 name=DockRoot 容器
-version=v0.4.1
-versionCode=401
+version=v0.5.0
+versionCode=500
 author=xyouo
 description=在已 Root 的 ARM64 Android 上运行 OCI/Docker 镜像，内置 OpenList、青龙和 Cloudflare Tunnel 模板（实验性）
 updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json

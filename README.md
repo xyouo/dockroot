@@ -219,7 +219,9 @@ su -c 'drctl status cloudflared'
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
 
-为保证旧版本能够被安全覆盖升级，内部模块 ID 仍保留为历史值 `dockroot_ksu`。它用于管理器识别同一个模块，也决定模块内部安装路径；日常使用无需关心，不影响仓库名、显示名、ZIP 名称或数据目录。
+v0.5.0 将内部模块 ID 从历史名称 `dockroot_ksu` 迁移为 `dockroot`。从 v0.4.1 或更早版本刷入 v0.5.0 时，安装脚本会复用原有 `/data/adb/dockroot` 数据，并将旧模块标记为待移除。安装完成到重启前，管理器短暂显示新旧两个模块属于正常现象；重启一次后只会保留新的 `dockroot` 模块。
+
+不要在迁移前手动移动或删除 `/data/adb/modules/dockroot_ksu`。镜像、容器、Stack、配置和业务卷从最早版本起就位于 `/data/adb/dockroot`，迁移不会复制大文件，也不会清空现有数据。如果旧模块原本已禁用，新模块会继承禁用状态。
 
 ## 数据与配置
 

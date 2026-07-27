@@ -8,6 +8,7 @@ required=(
   module/service.sh
   module/bin/drctl
   module/bin/dockroot-exec
+  module/bin/migrate-module-id
   module/examples/cloudflared.conf
   module/examples/openlist.conf
   module/examples/qinglong.conf
@@ -22,7 +23,7 @@ for file in "${required[@]}"; do
   test -s "$file" || { echo "缺少文件：$file" >&2; exit 1; }
 done
 
-grep -q '^id=dockroot_ksu$' module/module.prop
+grep -q '^id=dockroot$' module/module.prop
 grep -q '^name=DockRoot 容器$' module/module.prop
 grep -q '^description=.*OCI/Docker.*OpenList.*青龙.*Cloudflare Tunnel' module/module.prop
 grep -q 'DOCKROOT_SHA256=' module/bin/drctl
@@ -35,13 +36,16 @@ grep -q '^IMAGE=cloudflare/cloudflared:latest$' module/examples/cloudflared.conf
 grep -q '^COMMAND=/usr/local/bin/cloudflared$' module/examples/cloudflared.conf
 grep -q '^ARG=--token-file$' module/examples/cloudflared.conf
 grep -q '^updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json$' module/module.prop
-grep -q '"version": "v0.4.1"' update.json
+grep -q '"version": "v0.5.0"' update.json
+grep -q '^exec /data/adb/modules/dockroot/bin/drctl ' module/system/bin/drctl
 
 bash -n module/customize.sh
 bash -n module/service.sh
 bash -n module/bin/drctl
 bash -n module/bin/dockroot-exec
+bash -n module/bin/migrate-module-id
 bash -n module/system/bin/drctl
 bash -n scripts/package.sh
+bash tests/test-migration.sh
 bash tests/test-drctl.sh
 bash tests/test-stacks.sh

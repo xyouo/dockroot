@@ -1,6 +1,6 @@
 {
-  "version": "v0.4.1",
-  "versionCode": 401,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.4.1/dockroot-v0.4.1.zip",
-  "changelog": "统一项目显示名为 DockRoot 容器，优化模块与仓库说明、安装提示和 README 命令；保留历史模块 ID，确保旧版本可安全覆盖升级。"
+  "version": "v0.5.0",
+  "versionCode": 500,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.5.0/dockroot-v0.5.0.zip",
+  "changelog": "内部模块 ID 正式迁移为 dockroot；安装时自动复用 /data/adb/dockroot 中的原有镜像、Stack、配置和业务卷，并安全退役旧 dockroot_ksu 模块。"
 }
