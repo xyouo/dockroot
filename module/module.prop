@@ -1,7 +1,7 @@
 id=dockroot
 name=DockRoot 容器
-version=v0.5.0
-versionCode=500
+version=v0.6.0
+versionCode=600
 author=xyouo
-description=在已 Root 的 ARM64 Android 上运行 OCI/Docker 镜像，内置 OpenList、青龙和 Cloudflare Tunnel 模板（实验性）
+description=在已 Root 的 ARM64 Android 上运行 OCI/Docker 镜像，支持通用 Compose Lite 配置与示例模板（实验性）
 updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json

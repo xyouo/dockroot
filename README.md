@@ -12,7 +12,8 @@
 - 查看 ruri 原始运行日志。
 - 配置容器开机自启。
 - 使用 Compose Lite 配置文件声明镜像、卷、环境变量、自定义启动命令和自启策略。
-- 提供 OpenList、青龙与 Cloudflare Tunnel 内置模板。
+- 提供与具体应用无关的 Stack 初始化、复制和删除命令。
+- 附带 OpenList、青龙示例配置；示例不参与核心命令分支。
 - 输出架构、SELinux、文件系统和挂载环境诊断。
 - 通过独立 mount namespace 为 DockRoot 提供 DNS，不修改 Android 全局网络配置。
 - 卸载模块时保留容器数据，防止误删。
@@ -86,6 +87,9 @@ DockRoot 只有 host 网络，因此不支持 Compose 的 `ports`、独立网络
 ```sh
 su -c 'drctl stack list'
 su -c 'drctl stack path'
+su -c 'drctl stack init demo alpine:latest'
+su -c 'drctl stack examples'
+su -c 'drctl stack example openlist'
 su -c 'drctl apply openlist'
 su -c 'drctl up openlist'
 su -c 'drctl down openlist'
@@ -96,12 +100,37 @@ su -c 'drctl logs openlist 100'
 
 `apply` 只拉取缺失镜像并更新固定配置，不会启动长期服务。`up` 会应用配置后后台启动。修改 `.conf` 后再次执行 `drctl up <容器名>` 即可生效。
 
-### OpenList 标准完整版示例
+### 通用 Stack 工作流
 
-创建内置模板：
+任何 ARM64 镜像都可以先生成一份最小配置，不需要模块内置预设：
 
 ```sh
-su -c 'drctl stack create openlist'
+su -c 'drctl stack init whoami traefik/whoami:latest'
+```
+
+生成 `/data/adb/dockroot/stacks/whoami.conf` 后，按镜像文档填写需要的 `VOLUME`、`ENV`、`COMMAND`、`ARG`、`CHECK_PORT` 和 `HEALTH_URL`，再执行：
+
+```sh
+su -c 'drctl up whoami'
+```
+
+也可以把自己准备好的 `.conf` 直接放入 `/data/adb/dockroot/stacks`。除旧版 OpenList、青龙配置的兼容修正外，模块不会根据容器名称加入隐藏参数或修改业务配置。
+
+删除 Stack 配置：
+
+```sh
+su -c 'drctl down whoami'
+su -c 'drctl stack remove whoami'
+```
+
+`stack remove` 只删除 `.conf` 并移出自启列表，镜像 rootfs 和业务卷会保留，避免误删数据。
+
+### OpenList 标准完整版示例
+
+复制模块附带的示例：
+
+```sh
+su -c 'drctl stack example openlist'
 su -c 'drctl up openlist'
 ```
 
@@ -124,75 +153,37 @@ OpenList 4.1 之后可能以容器内 UID 1001 运行。模块会放宽具体卷
 
 ### 青龙面板示例
 
-创建青龙配置时可以直接指定端口，例如使用 5900：
+先复制青龙示例：
 
 ```sh
-su -c 'drctl stack create qinglong 5900'
-su -c 'drctl up qinglong'
+su -c 'drctl stack example qinglong'
 ```
 
-生成的 `/data/adb/dockroot/stacks/qinglong.conf` 主要内容为：
+生成的 `/data/adb/dockroot/stacks/qinglong.conf` 默认使用 HTTP 5700、gRPC 5501：
 
 ```ini
 IMAGE=whyour/qinglong:latest
 AUTOSTART=1
 HOSTNAME=qinglong
 VOLUME=/data/adb/dockroot/volumes/qinglong:/ql/data
-ENV=QlPort=5900
+ENV=QlPort=5700
 ENV=QlGrpcPort=5501
 ENV=QlBaseUrl=/
 ENV=TZ=Asia/Shanghai
-CHECK_PORT=5900
+CHECK_PORT=5700
 CHECK_PORT=5501
-HEALTH_URL=http://127.0.0.1:5900/api/health
+HEALTH_URL=http://127.0.0.1:5700/api/health
 ```
 
-青龙使用 host 网络，因此面板地址是 `http://127.0.0.1:5900`，gRPC 使用 5501。模块会在启动前检查两个端口冲突，并在启动后验证 HTTP、gRPC 和持久化卷。青龙的配置、任务、日志和依赖保存在 `/data/adb/dockroot/volumes/qinglong`，覆盖升级模块或重新拉取镜像不会删除。
-
-如果创建模板时省略端口，将使用青龙默认的 5700：
+如需改为 HTTP 5900，请在启动前同时修改 `ENV=QlPort`、对应的 `CHECK_PORT` 和 `HEALTH_URL`，然后执行：
 
 ```sh
-su -c 'drctl stack create qinglong'
+su -c 'drctl up qinglong'
 ```
 
-也可以同时指定 HTTP 和 gRPC 端口：
+青龙使用 host 网络。模块会按配置检查端口冲突、HTTP 健康状态和持久化卷。青龙的配置、任务、日志和依赖保存在 `/data/adb/dockroot/volumes/qinglong`，覆盖升级模块或重新拉取镜像不会删除。
 
-```sh
-su -c 'drctl stack create qinglong 5900 5501'
-```
-
-### Cloudflare Tunnel 示例
-
-官方 `cloudflare/cloudflared:latest` 镜像支持 ARM64。DockRoot 使用 host 网络，因此 cloudflared 可以直接访问手机上的服务，例如青龙模板默认的 `http://127.0.0.1:5700`（改过端口时以实际配置为准）和 OpenList `http://127.0.0.1:5244`；它不会占用这两个业务端口。
-
-推荐在 Cloudflare 控制台创建 remotely-managed Tunnel，并在控制台配置 Public Hostname。创建完成后，只复制安装命令末尾以 `eyJ...` 开头的 Tunnel token。不要把 token 写入仓库、Issue、Release 或聊天记录。
-
-在手机创建模板并隐藏输入 token：
-
-```sh
-su -c 'drctl stack create cloudflared'
-su -c 'drctl stack secret cloudflared'
-```
-
-第二条命令的输入不会显示。token 会单独保存到 `/data/adb/dockroot/volumes/cloudflared/token`，不会写入 Stack 配置或进程参数；该目录以只读方式挂载进容器。
-
-然后启动并检查：
-
-```sh
-su -c 'drctl up cloudflared'
-su -c 'drctl status cloudflared'
-su -c 'drctl logs cloudflared 100'
-```
-
-默认使用仅监听本机的 `49312` 作为 metrics/就绪检查端口。若它被占用，可在创建模板时换一个端口：
-
-```sh
-su -c 'drctl stack create cloudflared 49313'
-```
-
-Tunnel 本身不需要开放入站端口，但设备网络需要允许 cloudflared 出站访问 Cloudflare 的 `7844/UDP`（QUIC）和 `7844/TCP`（HTTP/2 回退）。`status` 中的 `ready[...]=connected` 表示已连接 Cloudflare；断网时会显示 `disconnected`，但模块不会杀掉进程，cloudflared 会继续自动重连。相关说明见 [Cloudflare Tunnel 运行参数](https://developers.cloudflare.com/tunnel/advanced/run-parameters/) 与 [防火墙要求](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/configure-tunnels/tunnel-with-firewall/)。
-
-如果把青龙暴露到公网，建议同时配置 Cloudflare Access，避免只依赖面板自身登录。
+旧版 `drctl stack create openlist`、`drctl stack create qinglong` 仍可使用，实际只是 `stack example` 的兼容别名；应用专用的端口参数已删除，端口统一在 `.conf` 中显式管理。
 
 ## 可靠启动与状态检查
 
@@ -210,7 +201,6 @@ Tunnel 本身不需要开放入站端口，但设备网络需要允许 cloudflar
 ```sh
 su -c 'drctl status openlist'
 su -c 'drctl status qinglong'
-su -c 'drctl status cloudflared'
 ```
 
 模块自身日志与容器 `ruri.log` 默认超过 1 MiB 后保留为 `.1` 并重新记录。阈值可在 `/data/adb/dockroot/config.env` 中通过 `MAX_LOG_SIZE_KB` 修改。
@@ -218,6 +208,8 @@ su -c 'drctl status cloudflared'
 ## 模块更新
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
+
+v0.6.0 将 Stack 创建改为通用架构。已有 `/data/adb/dockroot/stacks/*.conf` 不会被示例覆盖并可继续工作；OpenList、青龙改为普通示例文件，Cloudflared 不再作为内置预设。以后新增容器通常只需创建或复制 `.conf`，不需要等待模块发布新版。
 
 v0.5.0 将内部模块 ID 从历史名称 `dockroot_ksu` 迁移为 `dockroot`。从 v0.4.1 或更早版本刷入 v0.5.0 时，安装脚本会复用原有 `/data/adb/dockroot` 数据，并将旧模块标记为待移除。安装完成到重启前，管理器短暂显示新旧两个模块属于正常现象；重启一次后只会保留新的 `dockroot` 模块。
 

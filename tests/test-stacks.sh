@@ -68,62 +68,79 @@ if cleanup_state --yes >/dev/null 2>&1; then
 fi
 DATA_ROOT="$STATE_DIR/data"
 
-rm -f "$STACK_DIR/qinglong.conf"
-create_stack qinglong 5900
-grep -Fx 'IMAGE=whyour/qinglong:latest' "$STACK_DIR/qinglong.conf"
-grep -Fx 'VOLUME=/data/adb/dockroot/volumes/qinglong:/ql/data' "$STACK_DIR/qinglong.conf"
-grep -Fx 'ENV=QlPort=5900' "$STACK_DIR/qinglong.conf"
-grep -Fx 'AUTOSTART=1' "$STACK_DIR/qinglong.conf"
-grep -Fx 'ENV=QlGrpcPort=5501' "$STACK_DIR/qinglong.conf"
-grep -Fx 'CHECK_PORT=5900' "$STACK_DIR/qinglong.conf"
-grep -Fx 'CHECK_PORT=5501' "$STACK_DIR/qinglong.conf"
-grep -Fx 'HEALTH_URL=http://127.0.0.1:5900/api/health' "$STACK_DIR/qinglong.conf"
-
-sed -i 's/ENV=QlPort=5900/ENV=QlPort=5901/' "$STACK_DIR/qinglong.conf"
-migrate_stack qinglong
-grep -Fx 'CHECK_PORT=5901' "$STACK_DIR/qinglong.conf"
-grep -Fx 'HEALTH_URL=http://127.0.0.1:5901/api/health' "$STACK_DIR/qinglong.conf"
-if grep -Fx 'CHECK_PORT=5900' "$STACK_DIR/qinglong.conf"; then
-  echo '青龙端口变化后不应保留旧检查端口' >&2
+rm -f "$STACK_DIR/demo.conf"
+init_stack demo alpine:latest
+grep -Fx 'IMAGE=alpine:latest' "$STACK_DIR/demo.conf"
+grep -Fx 'AUTOSTART=0' "$STACK_DIR/demo.conf"
+grep -Fx 'HOSTNAME=demo' "$STACK_DIR/demo.conf"
+grep -F "# VOLUME=$VOLUME_DIR/demo:/容器内路径" "$STACK_DIR/demo.conf"
+if init_stack demo busybox:latest >/dev/null 2>&1; then
+  echo '通用初始化不应覆盖现有配置' >&2
+  exit 1
+fi
+if init_stack invalid 'bad image' >/dev/null 2>&1; then
+  echo '镜像名称包含空白时应拒绝初始化' >&2
+  exit 1
+fi
+if init_stack extra alpine:latest unexpected >/dev/null 2>&1; then
+  echo '通用初始化不应静默忽略多余参数' >&2
   exit 1
 fi
 
-rm -f "$STACK_DIR/cloudflared.conf"
-create_stack cloudflared
-grep -Fx 'IMAGE=cloudflare/cloudflared:latest' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'AUTOSTART=1' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'VOLUME=/data/adb/dockroot/volumes/cloudflared:/etc/cloudflared:ro' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'REQUIRED_FILE=/data/adb/dockroot/volumes/cloudflared/token' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'APPLY_COMMAND=/usr/local/bin/cloudflared' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'APPLY_ARG=version' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'COMMAND=/usr/local/bin/cloudflared' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'ARG=tunnel' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'ARG=--token-file' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'ARG=/etc/cloudflared/token' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'CHECK_PORT=49312' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'READY_URL=http://127.0.0.1:49312/ready' "$STACK_DIR/cloudflared.conf"
+list_examples > "$temp_dir/examples"
+grep -Fx 'openlist' "$temp_dir/examples"
+grep -Fx 'qinglong' "$temp_dir/examples"
+if grep -Fx 'cloudflared' "$temp_dir/examples"; then
+  echo 'Cloudflared 不应继续作为模块示例' >&2
+  exit 1
+fi
 
-rm -f "$STACK_DIR/cloudflared.conf"
-create_stack cloudflared 49313
-grep -Fx 'CHECK_PORT=49313' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'ARG=127.0.0.1:49313' "$STACK_DIR/cloudflared.conf"
-grep -Fx 'READY_URL=http://127.0.0.1:49313/ready' "$STACK_DIR/cloudflared.conf"
+rm -f "$STACK_DIR/qltest.conf"
+copy_stack_example qinglong qltest
+grep -Fx 'IMAGE=whyour/qinglong:latest' "$STACK_DIR/qltest.conf"
+grep -Fx 'HOSTNAME=qltest' "$STACK_DIR/qltest.conf"
+grep -Fx 'VOLUME=/data/adb/dockroot/volumes/qltest:/ql/data' "$STACK_DIR/qltest.conf"
+grep -Fx 'ENV=QlPort=5700' "$STACK_DIR/qltest.conf"
+grep -Fx 'ENV=QlGrpcPort=5501' "$STACK_DIR/qltest.conf"
+if grep -F '__STACK_NAME__' "$STACK_DIR/qltest.conf"; then
+  echo '复制示例后不应保留配置名占位符' >&2
+  exit 1
+fi
 
-# 自定义命令必须逐参数传递，并以 -- 隔开 DockRoot 参数。
-sed -i "s|/data/adb/dockroot|$STATE_DIR|g" "$STACK_DIR/cloudflared.conf"
-mkdir -p "$DATA_ROOT/cloudflared/rootfs" "$STATE_DIR/volumes/cloudflared"
-printf '%s\n' 'test-token' | set_stack_secret cloudflared >/dev/null
-test "$(stat -c '%a' "$STATE_DIR/volumes/cloudflared/token")" = 644
-if grep -F 'test-token' "$STACK_DIR/cloudflared.conf"; then
-  echo 'Tunnel token 不应写入 Stack 配置' >&2
+rm -f "$STACK_DIR/qinglong.conf"
+create_stack qinglong
+test -f "$STACK_DIR/qinglong.conf"
+if create_stack qinglong 5900 >/dev/null 2>&1; then
+  echo '兼容命令不应继续接收应用专用端口参数' >&2
+  exit 1
+fi
+if copy_stack_example cloudflared cloudflared >/dev/null 2>&1; then
+  echo '已删除的 Cloudflared 示例不应还能创建' >&2
+  exit 1
+fi
+if copy_stack_example qinglong one extra >/dev/null 2>&1; then
+  echo '示例复制不应静默忽略多余参数' >&2
+  exit 1
+fi
+
+cat > "$STACK_DIR/secretapp.conf" <<EOF
+IMAGE=example/secretapp:latest
+AUTOSTART=0
+REQUIRED_FILE=$STATE_DIR/volumes/secretapp/token
+EOF
+mkdir -p "$DATA_ROOT/secretapp/rootfs" "$STATE_DIR/volumes/secretapp"
+printf '%s\n' 'test-secret' | set_stack_secret secretapp >/dev/null
+test "$(stat -c '%a' "$STATE_DIR/volumes/secretapp/token")" = 644
+if grep -F 'test-secret' "$STACK_DIR/secretapp.conf"; then
+  echo '秘密内容不应写入 Stack 配置' >&2
   exit 1
 fi
 : > "$calls"
-apply_stack cloudflared
+apply_stack secretapp
 grep -F 'run_dockroot <run> <--renew>' "$calls"
-grep -F '<cloudflared> <--> </usr/local/bin/cloudflared> <version>' "$calls"
-if grep -F 'test-token' "$calls"; then
-  echo 'Tunnel token 不应出现在 DockRoot 命令参数中' >&2
+grep -F '<secretapp> <--> </bin/true>' "$calls"
+if grep -F 'test-secret' "$calls"; then
+  echo '秘密内容不应出现在 DockRoot 命令参数中' >&2
   exit 1
 fi
 
@@ -186,11 +203,18 @@ sleep() { :; }
 
 start_stack openlist
 
+cat > "$STACK_DIR/readyapp.conf" <<'EOF'
+IMAGE=example/readyapp:latest
+COMMAND=/usr/local/bin/readyd
+ARG=serve
+READY_URL=http://127.0.0.1:49313/ready
+EOF
+mkdir -p "$DATA_ROOT/readyapp/rootfs"
 running=0
 : > "$calls"
 health_url_ok() { return 1; }
-start_stack cloudflared
-grep -F 'run_dockroot <run> <-d> <cloudflared> <--> </usr/local/bin/cloudflared> <tunnel> <--no-autoupdate> <--loglevel> <info> <--metrics> <127.0.0.1:49313> <run> <--token-file> </etc/cloudflared/token>' "$calls"
+start_stack readyapp
+grep -F 'run_dockroot <run> <-d> <readyapp> <--> </usr/local/bin/readyd> <serve>' "$calls"
 
 cat > "$STACK_DIR/args.conf" <<'EOF'
 IMAGE=example/args:latest
@@ -203,14 +227,32 @@ running=0
 start_stack args
 grep -F 'run_dockroot <run> <-d> <args> <--> </bin/tool> <--label=value with space>' "$calls"
 
-rm -f "$STATE_DIR/volumes/cloudflared/token"
+rm -f "$STATE_DIR/volumes/secretapp/token"
 running=1
-if start_stack cloudflared >/dev/null 2>&1; then
-  echo '缺少 Tunnel token 时不应启动 cloudflared' >&2
+if start_stack secretapp >/dev/null 2>&1; then
+  echo '缺少秘密文件时不应启动容器' >&2
   exit 1
 fi
 if [ "$running" != 1 ]; then
-  echo '缺少 Tunnel token 时不应停止原有 cloudflared 进程' >&2
+  echo '缺少秘密文件时不应停止原有容器进程' >&2
+  exit 1
+fi
+
+cat > "$STACK_DIR/remove-me.conf" <<'EOF'
+IMAGE=example/remove-me:latest
+AUTOSTART=1
+EOF
+mkdir -p "$DATA_ROOT/remove-me/rootfs" "$STATE_DIR/volumes/remove-me"
+touch "$STATE_DIR/volumes/remove-me/keep"
+printf '%s\n' remove-me >> "$AUTOSTART_FILE"
+running=0
+autostart_remove() { sed -i "/^$1$/d" "$AUTOSTART_FILE"; }
+remove_stack remove-me
+test ! -e "$STACK_DIR/remove-me.conf"
+test -d "$DATA_ROOT/remove-me/rootfs"
+test -f "$STATE_DIR/volumes/remove-me/keep"
+if grep -Fx remove-me "$AUTOSTART_FILE"; then
+  echo '删除 Stack 时应同步移出自启列表' >&2
   exit 1
 fi
 

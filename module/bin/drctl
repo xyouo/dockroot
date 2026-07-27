@@ -648,59 +648,106 @@ status_stack() {
   [ "$ok" = 1 ]
 }
 
-create_stack() {
-  template=${1:-}
-  option=${2:-}
-  option2=${3:-}
-  ensure_state || return 1
-  case "$template" in
-    openlist)
-      target="$STACK_DIR/openlist.conf"
-      source="$MODDIR/examples/openlist.conf"
-      ;;
-    qinglong)
-      target="$STACK_DIR/qinglong.conf"
-      source="$MODDIR/examples/qinglong.conf"
-      port=${option:-5700}
-      grpc_port=${option2:-5501}
-      case "$port" in ''|*[!0-9]*) err '青龙端口必须是 1-65535 的数字'; return 1 ;; esac
-      case "$grpc_port" in ''|*[!0-9]*) err '青龙 gRPC 端口必须是 1-65535 的数字'; return 1 ;; esac
-      if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-        err '青龙端口必须在 1-65535 之间'
-        return 1
-      fi
-      if [ "$grpc_port" -lt 1 ] || [ "$grpc_port" -gt 65535 ] || [ "$grpc_port" = "$port" ]; then
-        err '青龙 gRPC 端口必须在 1-65535 之间且不能与 HTTP 端口相同'
-        return 1
-      fi
-      ;;
-    cloudflared)
-      target="$STACK_DIR/cloudflared.conf"
-      source="$MODDIR/examples/cloudflared.conf"
-      metrics_port=${option:-49312}
-      case "$metrics_port" in ''|*[!0-9]*) err 'cloudflared 健康检查端口必须是 1-65535 的数字'; return 1 ;; esac
-      if [ "$metrics_port" -lt 1 ] || [ "$metrics_port" -gt 65535 ]; then
-        err 'cloudflared 健康检查端口必须在 1-65535 之间'
-        return 1
-      fi
-      ;;
-    *) err '当前内置模板：openlist、qinglong、cloudflared'; return 1 ;;
+init_stack() {
+  [ "$#" -eq 2 ] || { err '用法：stack init <配置名> <镜像>'; return 1; }
+  name=${1:-}
+  image=${2:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  case "$image" in
+    ''|*[[:space:]]*) err '请提供不含空白字符的镜像名称'; return 1 ;;
   esac
+  ensure_state || return 1
+  target="$(stack_file "$name")"
   [ ! -e "$target" ] || { err "配置已存在，不会覆盖：$target"; return 1; }
-  cp "$source" "$target" || return 1
-  if [ "$template" = qinglong ]; then
-    sed -i "s|__QL_PORT__|$port|g" "$target"
-    sed -i "s|__QL_GRPC_PORT__|$grpc_port|g" "$target"
-  elif [ "$template" = cloudflared ]; then
-    sed -i "s|__METRICS_PORT__|$metrics_port|g" "$target"
-    mkdir -p "$VOLUME_DIR/cloudflared" || return 1
-    chmod 0700 "$VOLUME_DIR/cloudflared" 2>/dev/null || true
+  temp="$target.tmp.$$"
+  {
+    printf '# 通用 Compose Lite 配置；按需取消注释并修改可选字段\n'
+    printf 'IMAGE=%s\n' "$image"
+    printf 'AUTOSTART=0\n'
+    printf 'HOSTNAME=%s\n' "$name"
+    printf '\n'
+    printf '# VOLUME=%s/%s:/容器内路径\n' "$VOLUME_DIR" "$name"
+    printf '# ENV=KEY=VALUE\n'
+    printf '# COMMAND=/容器内启动程序\n'
+    printf '# ARG=单个启动参数\n'
+    printf '# CHECK_PORT=端口\n'
+    printf '# HEALTH_URL=http://127.0.0.1:端口/health\n'
+  } > "$temp" || { rm -f "$temp"; return 1; }
+  if ! chmod 0600 "$temp" || ! mv -f "$temp" "$target"; then
+    rm -f "$temp"
+    return 1
   fi
-  chmod 0600 "$target"
-  msg "已创建配置：$target"
-  if [ "$template" = cloudflared ]; then
-    msg "下一步先执行：$0 stack secret cloudflared"
+  msg "已创建通用配置：$target"
+  msg "请编辑配置后执行：$0 up $name"
+}
+
+list_examples() {
+  found=0
+  for file in "$MODDIR"/examples/*.conf; do
+    [ -f "$file" ] || continue
+    basename "$file" .conf
+    found=1
+  done
+  [ "$found" = 1 ] || msg '当前模块没有附带示例'
+}
+
+copy_stack_example() {
+  [ "$#" -ge 1 ] && [ "$#" -le 2 ] || {
+    err '用法：stack example <示例> [配置名]'
+    return 1
+  }
+  example=${1:-}
+  name=${2:-$example}
+  valid_name "$example" || { err '请提供有效示例名'; return 1; }
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  ensure_state || return 1
+  source="$MODDIR/examples/$example.conf"
+  [ -r "$source" ] || {
+    err "示例不存在：$example"
+    printf '可用示例：\n' >&2
+    list_examples >&2
+    return 1
+  }
+  target="$(stack_file "$name")"
+  [ ! -e "$target" ] || { err "配置已存在，不会覆盖：$target"; return 1; }
+  temp="$target.tmp.$$"
+  sed "s|__STACK_NAME__|$name|g" "$source" > "$temp" || {
+    rm -f "$temp"
+    return 1
+  }
+  if ! chmod 0600 "$temp" || ! mv -f "$temp" "$target"; then
+    rm -f "$temp"
+    return 1
   fi
+  msg "已从示例 $example 创建配置：$target"
+  msg "如需修改端口或目录，请先编辑该配置，再执行：$0 up $name"
+}
+
+# 兼容旧命令；实现仍然是通用示例复制，不再按容器名进入核心分支。
+create_stack() {
+  example=${1:-}
+  [ "$#" -le 1 ] || {
+    err 'stack create 不再接收端口参数；请创建后直接编辑 .conf'
+    return 1
+  }
+  copy_stack_example "$example" "$example"
+}
+
+remove_stack() {
+  [ "$#" -eq 1 ] || { err '用法：stack remove <配置名>'; return 1; }
+  name=${1:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  ensure_state || return 1
+  file="$(stack_file "$name")"
+  [ -f "$file" ] || { err "配置不存在：$file"; return 1; }
+  if runtime_ready && [ -n "$(container_pids "$name")" ]; then
+    err "容器仍在运行，请先执行：$0 down $name"
+    return 1
+  fi
+  autostart_remove "$name"
+  rm -f "$file" || return 1
+  msg "已删除配置：$file"
+  msg "镜像 rootfs 与业务卷未删除，需要时仍可重新创建配置"
 }
 
 set_stack_secret() {
@@ -724,7 +771,7 @@ set_stack_secret() {
   secret=
   secret_tty=0
   if [ -t 0 ] && have_cmd stty; then
-    printf '请粘贴 Tunnel token（输入不会显示），然后按回车：' >&2
+    printf '请输入秘密内容（输入不会显示），然后按回车：' >&2
     stty -echo
     secret_tty=1
     trap 'stty echo 2>/dev/null; printf "\n" >&2; exit 130' HUP INT TERM
@@ -914,10 +961,12 @@ DockRoot 容器模块（实验性）
   autostart add <容器名>           加入开机自启
   autostart remove <容器名>        移除开机自启
   autostart list                  查看开机自启列表
-  stack create openlist                创建标准完整版 OpenList 配置模板
-  stack create qinglong [HTTP] [gRPC]  创建青龙模板，默认 5700/5501
-  stack create cloudflared [METRICS]   创建 Cloudflare Tunnel 模板，默认 49312
+  stack init <配置名> <镜像>            创建与具体应用无关的通用配置
+  stack examples                       列出模块附带的示例配置
+  stack example <示例> [配置名]        复制示例，可使用不同配置名
+  stack create <示例>                  兼容旧版的示例复制命令
   stack secret <配置名>                隐藏输入并保存模板所需的秘密文件
+  stack remove <配置名>                删除配置，保留镜像与业务卷
   stack list                      查看声明式配置
   apply <配置名>                  应用固定配置但不启动
   up <配置名>                     应用配置并后台启动
@@ -948,11 +997,18 @@ main() {
       sub=${1:-list}
       [ $# -eq 0 ] || shift
       case "$sub" in
-        create) create_stack "${1:-}" "${2:-}" "${3:-}" ;;
+        init) init_stack "$@" ;;
+        examples)
+          [ "$#" -eq 0 ] || { err '用法：stack examples'; return 1; }
+          list_examples
+          ;;
+        example) copy_stack_example "$@" ;;
+        create) create_stack "$@" ;;
         secret) set_stack_secret "${1:-}" ;;
+        remove|rm) remove_stack "$@" ;;
         list) list_stacks ;;
         path) ensure_state; printf '%s\n' "$STACK_DIR" ;;
-        *) err '可用子命令：create、secret、list、path'; return 1 ;;
+        *) err '可用子命令：init、examples、example、create、secret、remove、list、path'; return 1 ;;
       esac
       ;;
     pull) pull_image "$@" ;;
