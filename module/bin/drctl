@@ -7,6 +7,7 @@ MODDIR=${MODDIR%/*}
 STATE_DIR=/data/adb/dockroot
 RUNTIME_DIR="$STATE_DIR/bin"
 LOG_DIR="$STATE_DIR/logs"
+HEALTH_STATE_DIR="$STATE_DIR/health"
 CONFIG_FILE="$STATE_DIR/config.env"
 AUTOSTART_FILE="$STATE_DIR/autostart.list"
 STACK_DIR="$STATE_DIR/stacks"
@@ -23,10 +24,10 @@ msg() { printf '[DockRoot 模块] %s\n' "$*"; }
 err() { printf '[DockRoot 模块] 错误：%s\n' "$*" >&2; }
 
 ensure_state() {
-  mkdir -p "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$STACK_DIR" "$VOLUME_DIR" 2>/dev/null || return 1
+  mkdir -p "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$HEALTH_STATE_DIR" "$STACK_DIR" "$VOLUME_DIR" 2>/dev/null || return 1
   [ -f "$CONFIG_FILE" ] || cp "$MODDIR/config.env" "$CONFIG_FILE"
   [ -f "$AUTOSTART_FILE" ] || : > "$AUTOSTART_FILE"
-  chmod 0700 "$STATE_DIR" "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$STACK_DIR" 2>/dev/null || true
+  chmod 0700 "$STATE_DIR" "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$HEALTH_STATE_DIR" "$STACK_DIR" 2>/dev/null || true
   chmod 0755 "$VOLUME_DIR" 2>/dev/null || true
   chmod 0600 "$CONFIG_FILE" "$AUTOSTART_FILE" 2>/dev/null || true
 }
@@ -39,6 +40,10 @@ load_config() {
   STOP_TIMEOUT=15
   START_TIMEOUT=30
   MAX_LOG_SIZE_KB=1024
+  HEALTHCHECK_ENABLE=1
+  HEALTHCHECK_INTERVAL=300
+  HEALTHCHECK_FAILURES=3
+  HEALTHCHECK_COOLDOWN=1800
   if [ -r "$CONFIG_FILE" ]; then
     # 仅接受已知键，避免直接执行配置文件内容。
     while IFS='=' read -r key value; do
@@ -50,6 +55,10 @@ load_config() {
         STOP_TIMEOUT) case "$value" in ''|*[!0-9]*) ;; *) STOP_TIMEOUT=$value;; esac ;;
         START_TIMEOUT) case "$value" in ''|*[!0-9]*) ;; *) START_TIMEOUT=$value;; esac ;;
         MAX_LOG_SIZE_KB) case "$value" in ''|*[!0-9]*) ;; *) MAX_LOG_SIZE_KB=$value;; esac ;;
+        HEALTHCHECK_ENABLE) case "$value" in 0|1) HEALTHCHECK_ENABLE=$value;; esac ;;
+        HEALTHCHECK_INTERVAL) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_INTERVAL=$value;; esac ;;
+        HEALTHCHECK_FAILURES) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_FAILURES=$value;; esac ;;
+        HEALTHCHECK_COOLDOWN) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_COOLDOWN=$value;; esac ;;
       esac
     done < "$CONFIG_FILE"
   fi
@@ -648,6 +657,121 @@ status_stack() {
   [ "$ok" = 1 ]
 }
 
+stack_health_ok() {
+  name=$1
+  container_is_running "$name" || return 1
+  required_files_ready "$name" >/dev/null 2>&1 || return 1
+  for volume in $(stack_values "$name" VOLUME); do
+    remainder=${volume#*:}
+    target=${remainder%%:*}
+    volume_is_mounted "$name" "$target" || return 1
+  done
+  for port in $(stack_values "$name" CHECK_PORT); do
+    port_is_listening "$port" || return 1
+  done
+  for url in $(stack_values "$name" HEALTH_URL); do
+    health_url_ok "$url" || return 1
+  done
+  return 0
+}
+
+now_epoch() {
+  date +%s 2>/dev/null || echo 0
+}
+
+healthcheck_stack() {
+  name=$1
+  valid_name "$name" || return 1
+  file="$(stack_file "$name")"
+  [ -r "$file" ] || return 1
+  failures_file="$HEALTH_STATE_DIR/$name.failures"
+  recovery_file="$HEALTH_STATE_DIR/$name.recovery"
+  failures=0
+  [ -r "$failures_file" ] && failures="$(cat "$failures_file" 2>/dev/null)"
+  case "$failures" in ''|*[!0-9]*) failures=0 ;; esac
+
+  if stack_health_ok "$name"; then
+    [ "$failures" = 0 ] || printf '0\n' > "$failures_file"
+    return 0
+  fi
+
+  failures=$((failures + 1))
+  printf '%s\n' "$failures" > "$failures_file"
+  msg "健康检查失败（$failures/$HEALTHCHECK_FAILURES）：$name"
+  [ "$failures" -ge "$HEALTHCHECK_FAILURES" ] || return 1
+
+  now="$(now_epoch)"
+  last=0
+  [ -r "$recovery_file" ] && last="$(cat "$recovery_file" 2>/dev/null)"
+  case "$last" in ''|*[!0-9]*) last=0 ;; esac
+  if [ "$now" -gt 0 ] && [ "$last" -gt 0 ] && [ $((now - last)) -lt "$HEALTHCHECK_COOLDOWN" ]; then
+    msg "仍在自愈冷却期，暂不重启：$name"
+    return 1
+  fi
+
+  printf '%s\n' "$now" > "$recovery_file"
+  msg "连续健康检查失败，正在自动恢复：$name"
+  if up_stack "$name"; then
+    printf '0\n' > "$failures_file"
+    msg "自动恢复成功：$name"
+    return 0
+  fi
+  msg "自动恢复失败：$name"
+  return 1
+}
+
+healthcheck_once() {
+  ensure_state || return 1
+  load_config
+  [ "$HEALTHCHECK_ENABLE" = 1 ] || return 0
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    valid_name "$name" || continue
+    healthcheck_stack "$name" || true
+  done < "$AUTOSTART_FILE"
+}
+
+watchdog() {
+  ensure_state || return 1
+  load_config
+  [ "$HEALTHCHECK_ENABLE" = 1 ] || return 0
+  case "$HEALTHCHECK_INTERVAL" in 0) HEALTHCHECK_INTERVAL=300 ;; esac
+  while true; do
+    healthcheck_once >> "$LOG_DIR/healthcheck.log" 2>&1
+    rotate_log "$LOG_DIR/healthcheck.log"
+    sleep "$HEALTHCHECK_INTERVAL"
+  done
+}
+
+service_main() {
+  boot
+  watchdog
+}
+
+stack_public_url() {
+  name=$1
+  url="$(stack_values "$name" HEALTH_URL | head -n 1)"
+  [ -n "$url" ] || return 0
+  printf '%s\n' "$url" | sed 's#^\(http://[^/]*\).*#\1#'
+}
+
+web_status() {
+  ensure_state || return 1
+  for file in "$STACK_DIR"/*.conf; do
+    [ -f "$file" ] || continue
+    name="$(basename "$file" .conf)"
+    if stack_health_ok "$name"; then
+      state=healthy
+    elif container_is_running "$name"; then
+      state=unhealthy
+    else
+      state=stopped
+    fi
+    public_url="$(stack_public_url "$name")"
+    printf '%s\t%s\t%s\n' "$name" "$state" "$public_url"
+  done
+}
+
 init_stack() {
   [ "$#" -eq 2 ] || { err '用法：stack init <配置名> <镜像>'; return 1; }
   name=${1:-}
@@ -953,6 +1077,7 @@ DockRoot 容器模块（实验性）
 
   install-runtime                 下载并校验 DockRoot/ruri
   doctor                          输出兼容性诊断
+  healthcheck                     立即检查自启容器并按阈值自愈
   pull <镜像:标签> <容器名>       拉取镜像
   run [-d] <容器名> [命令...]     运行或进入容器
   stop <容器名>                   停止容器
@@ -987,6 +1112,10 @@ main() {
     install-runtime) install_runtime ;;
     doctor) doctor ;;
     boot) boot ;;
+    service) service_main ;;
+    watchdog) watchdog ;;
+    healthcheck) healthcheck_once ;;
+    web-status) web_status ;;
     apply) apply_stack "${1:-}" ;;
     up) up_stack "${1:-}" ;;
     down) down_stack "${1:-}" ;;

@@ -12,6 +12,10 @@ required=(
   module/examples/openlist.conf
   module/examples/qinglong.conf
   module/system/bin/drctl
+  module/webroot/index.html
+  module/webroot/app.js
+  module/webroot/kernelsu.js
+  module/webroot/style.css
   scripts/package.sh
   README.md
   LICENSE
@@ -24,7 +28,7 @@ done
 
 grep -q '^id=dockroot$' module/module.prop
 grep -q '^name=DockRoot 容器$' module/module.prop
-grep -q '^description=.*OCI/Docker.*Compose Lite.*示例模板' module/module.prop
+grep -q '^description=.*OCI/Docker.*Compose Lite.*健康自愈.*WebUI' module/module.prop
 grep -q 'DOCKROOT_SHA256=' module/bin/drctl
 grep -q 'RURI_SHA256=' module/bin/drctl
 grep -q '只支持 host 网络' module/bin/drctl
@@ -35,8 +39,11 @@ grep -q '^ENV=QlPort=5700$' module/examples/qinglong.conf
 grep -q '^ENV=QlGrpcPort=5501$' module/examples/qinglong.conf
 test ! -e module/examples/cloudflared.conf
 grep -q '^updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json$' module/module.prop
-grep -q '"version": "v0.6.0"' update.json
+grep -q '"version": "v0.7.0"' update.json
 grep -q '^exec /data/adb/modules/dockroot/bin/drctl ' module/system/bin/drctl
+grep -q '"./kernelsu.js"' module/webroot/app.js
+grep -q 'web-status' module/webroot/app.js
+grep -q 'drctl.*service' module/service.sh
 
 bash -n module/customize.sh
 bash -n module/service.sh

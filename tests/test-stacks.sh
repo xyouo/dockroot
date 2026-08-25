@@ -269,3 +269,41 @@ if stop_stack openlist >/dev/null 2>&1; then
   echo '旧进程不退出时 stop_stack 不应返回成功' >&2
   exit 1
 fi
+
+# 保活：连续失败达阈值才自愈，健康后清零计数。
+HEALTH_STATE_DIR="$STATE_DIR/health"
+HEALTHCHECK_FAILURES=3
+HEALTHCHECK_COOLDOWN=1800
+mkdir -p "$HEALTH_STATE_DIR"
+stack_healthy=0
+restart_count=0
+stack_health_ok() { [ "$stack_healthy" = 1 ]; }
+up_stack() { restart_count=$((restart_count + 1)); stack_healthy=1; }
+now_epoch() { echo 2000; }
+
+healthcheck_stack openlist >/dev/null || true
+healthcheck_stack openlist >/dev/null || true
+test "$restart_count" = 0
+healthcheck_stack openlist >/dev/null
+test "$restart_count" = 1
+test "$(cat "$HEALTH_STATE_DIR/openlist.failures")" = 0
+
+stack_healthy=1
+printf '2\n' > "$HEALTH_STATE_DIR/openlist.failures"
+healthcheck_stack openlist >/dev/null
+test "$(cat "$HEALTH_STATE_DIR/openlist.failures")" = 0
+
+# WebUI 数据必须从 Stack 动态生成，不写死应用名称。
+cat > "$STACK_DIR/dashboard.conf" <<'EOF'
+IMAGE=example/dashboard:latest
+AUTOSTART=1
+HEALTH_URL=http://127.0.0.1:8123/api/health
+EOF
+stack_health_ok() {
+  # 模拟真实健康检查使用同名全局变量，确保不会覆盖面板入口。
+  url="$(stack_values "$1" HEALTH_URL | head -n 1)"
+  [ "$1" = dashboard ]
+}
+web_status > "$temp_dir/web-status"
+grep -F $'dashboard\thealthy\thttp://127.0.0.1:8123' "$temp_dir/web-status"
+grep -F $'openlist\tunhealthy\thttp://127.0.0.1:5244' "$temp_dir/web-status"

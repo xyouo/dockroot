@@ -1,6 +1,6 @@
 {
-  "version": "v0.6.0",
-  "versionCode": 600,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.6.0/dockroot-v0.6.0.zip",
-  "changelog": "Stack 系统改为通用架构：新增 init、examples、example 与 remove；青龙和 OpenList 改为可复制示例；移除 Cloudflared 内置预设，后续新增容器无需修改核心代码。"
+  "version": "v0.7.0",
+  "versionCode": 700,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.7.0/dockroot-v0.7.0.zip",
+  "changelog": "新增自启容器健康保活：连续失败达阈值后自愈并启用冷却保护；新增 KernelSU WebUI，可动态查看状态、打开面板与复制容器地址。"
 }

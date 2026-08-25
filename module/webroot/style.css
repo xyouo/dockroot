@@ -1,0 +1,43 @@
+:root {
+  font-family: system-ui, -apple-system, "Noto Sans SC", sans-serif;
+  color: #17212b;
+  background: #f4f6f8;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 760px; margin: 0 auto; padding: 28px 18px 40px; }
+header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.eyebrow { margin: 0 0 4px; color: #13766f; font-size: 12px; font-weight: 800; letter-spacing: .16em; }
+h1 { margin: 0; font-size: 30px; letter-spacing: -.03em; }
+.subtitle { margin: 8px 0 0; color: #66717d; font-size: 14px; }
+button { min-height: 42px; padding: 0 16px; border: 1px solid #d7dde2; border-radius: 12px; color: inherit; background: #fff; font-weight: 700; }
+button:active { transform: scale(.97); background: #edf2f3; }
+button:disabled { opacity: .55; }
+.icon-button { flex: 0 0 auto; }
+.grid { display: grid; gap: 14px; margin-top: 24px; }
+.card { padding: 18px; border: 1px solid #e1e5e8; border-radius: 18px; background: #fff; box-shadow: 0 8px 28px rgba(25, 42, 55, .06); }
+.card-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+h2 { margin: 0; font-size: 20px; }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+.status i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 13%, transparent); }
+.status.ok { color: #168564; }
+.status.warn { color: #c27a00; }
+.status.off { color: #84909b; }
+.url { min-height: 20px; margin: 16px 0; overflow-wrap: anywhere; color: #66717d; font-family: ui-monospace, monospace; font-size: 13px; }
+.actions { display: flex; gap: 10px; }
+.actions button { flex: 1; }
+.actions .primary { border-color: #13766f; color: #fff; background: #13766f; }
+.no-url, .loading { color: #78838e; font-size: 14px; }
+.loading { padding: 28px 4px; text-align: center; }
+.notice { margin-top: 18px; padding: 12px 14px; border-radius: 12px; color: #982c2c; background: #ffeded; white-space: pre-wrap; }
+footer { margin-top: 24px; color: #7a858f; font-size: 12px; line-height: 1.6; }
+
+@media (prefers-color-scheme: dark) {
+  :root { color: #edf2f5; background: #101416; }
+  .subtitle, .url, footer, .no-url, .loading { color: #9ba6ae; }
+  .card { border-color: #30383d; background: #1a2024; box-shadow: none; }
+  button { border-color: #3a444a; background: #222a2f; }
+  button:active { background: #2b353b; }
+  .notice { color: #ffb8b8; background: #3a2020; }
+}

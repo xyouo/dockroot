@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="color-scheme" content="light dark">
+    <title>DockRoot 容器</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">DOCKROOT</p>
+          <h1>容器入口</h1>
+          <p class="subtitle">查看状态、打开面板或复制本机地址。</p>
+        </div>
+        <button id="refresh" class="icon-button" type="button" aria-label="刷新">刷新</button>
+      </header>
+      <section id="notice" class="notice" hidden></section>
+      <section id="containers" class="grid" aria-live="polite">
+        <div class="loading">正在读取容器状态…</div>
+      </section>
+      <footer>
+        保活仅在连续健康检查失败后自动恢复，不会定时重启正常容器。
+      </footer>
+    </main>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

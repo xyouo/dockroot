@@ -11,6 +11,8 @@
 - 拉取、运行、停止和查看容器。
 - 查看 ruri 原始运行日志。
 - 配置容器开机自启。
+- 每 5 分钟检查自启容器，连续 3 次失败后自动恢复，并限制故障循环。
+- 提供 KernelSU WebUI，动态展示容器状态、打开面板和复制地址。
 - 使用 Compose Lite 配置文件声明镜像、卷、环境变量、自定义启动命令和自启策略。
 - 提供与具体应用无关的 Stack 初始化、复制和删除命令。
 - 附带 OpenList、青龙示例配置；示例不参与核心命令分支。
@@ -205,9 +207,28 @@ su -c 'drctl status qinglong'
 
 模块自身日志与容器 `ruri.log` 默认超过 1 MiB 后保留为 `.1` 并重新记录。阈值可在 `/data/adb/dockroot/config.env` 中通过 `MAX_LOG_SIZE_KB` 修改。
 
+### 健康保活与故障自愈
+
+模块只监控 `autostart.list` 中的容器。默认每 300 秒检查进程、持久化卷、`CHECK_PORT` 和 `HEALTH_URL`；连续 3 次失败才执行一次 `up`，自愈后 1800 秒内不会再次重启同一容器。正常容器不会被定时重启。
+
+```ini
+HEALTHCHECK_ENABLE=1
+HEALTHCHECK_INTERVAL=300
+HEALTHCHECK_FAILURES=3
+HEALTHCHECK_COOLDOWN=1800
+```
+
+可在 `/data/adb/dockroot/config.env` 修改上述参数，也可执行 `su -c 'drctl healthcheck'` 手动检查一次。只在失败或自愈时记录 `/data/adb/dockroot/logs/healthcheck.log`。该功能可恢复崩溃或端口失效的容器，但 Android 深度休眠仍可能延迟检查本身，它不等于精确定时唤醒。
+
+### KernelSU 容器入口
+
+在 KernelSU 的模块详情中点击“打开”即可进入 DockRoot WebUI。页面会动态读取所有 Stack，显示容器健康状态，并为已配置 `HEALTH_URL` 的容器提供“打开”和“复制地址”。例如 `http://127.0.0.1:9057/api/health` 会生成 `http://127.0.0.1:9057` 入口。
+
 ## 模块更新
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
+
+v0.7.0 增加通用健康保活、失败阈值与自愈冷却，并增加 KernelSU 容器入口 WebUI。
 
 v0.6.0 将 Stack 创建改为通用架构。已有 `/data/adb/dockroot/stacks/*.conf` 不会被示例覆盖并可继续工作；OpenList、青龙改为普通示例文件，Cloudflared 不再作为内置预设。以后新增容器通常只需创建或复制 `.conf`，不需要等待模块发布新版。
 
@@ -260,7 +281,7 @@ su -c 'drctl cleanup --yes'
 - 容器接近特权运行，隔离能力不能与标准 Docker 相比。
 - 所有服务共享手机网络和端口，必须自行避免端口冲突。
 - Android 的 Doze、厂商后台冻结和温控策略可能延后任务或终止后台服务。
-- 首版不提供 WebUI，先验证设备兼容性和运行稳定性。
+- WebUI 需要支持模块 WebUI 的 KernelSU/APatch 管理器；Magisk 环境仍可使用全部命令行功能。
 - 如果上游二进制更新导致 SHA-256 改变，模块会拒绝执行未知文件，需要先在仓库更新校验值。
 
 ## 上游项目
