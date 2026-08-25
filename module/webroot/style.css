@@ -28,6 +28,7 @@ h2 { margin: 0; font-size: 20px; }
 .actions { display: flex; gap: 10px; }
 .actions button { flex: 1; }
 .actions .primary { border-color: #13766f; color: #fff; background: #13766f; }
+.actions .danger { border-color: #d8b4b4; color: #a52f2f; }
 .no-url, .loading { color: #78838e; font-size: 14px; }
 .loading { padding: 28px 4px; text-align: center; }
 .notice { margin-top: 18px; padding: 12px 14px; border-radius: 12px; color: #982c2c; background: #ffeded; white-space: pre-wrap; }
@@ -39,5 +40,6 @@ footer { margin-top: 24px; color: #7a858f; font-size: 12px; line-height: 1.6; }
   .card { border-color: #30383d; background: #1a2024; box-shadow: none; }
   button { border-color: #3a444a; background: #222a2f; }
   button:active { background: #2b353b; }
+  .actions .danger { border-color: #694242; color: #ffaaaa; }
   .notice { color: #ffb8b8; background: #3a2020; }
 }

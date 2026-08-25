@@ -36,10 +36,12 @@ function render(rows) {
     const [stateLabel, stateClass] = labels[state] || labels.stopped;
     const safeName = escapeHtml(name);
     const safeUrl = escapeHtml(url);
-    const actions = url
+    const addressActions = url
       ? `<button class="primary" data-open="${safeUrl}" type="button">打开</button>
          <button data-copy="${safeUrl}" type="button">复制地址</button>`
       : '<span class="no-url">未配置 HEALTH_URL</span>';
+    const actions = `${addressActions}
+      <button class="danger" data-restart="${safeName}" type="button">重启</button>`;
     return `<article class="card">
       <div class="card-title">
         <h2>${safeName}</h2>
@@ -49,6 +51,33 @@ function render(rows) {
       <div class="actions">${actions}</div>
     </article>`;
   }).join("");
+}
+
+async function restartStack(name, button) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    toast("容器名称无效");
+    return;
+  }
+  if (!window.confirm(`确定重启容器“${name}”吗？\n正在执行的任务或传输会被中断。`)) return;
+
+  const oldText = button.textContent;
+  let restarted = false;
+  button.disabled = true;
+  button.textContent = "重启中…";
+  notice.hidden = true;
+  try {
+    const result = await exec(`/data/adb/modules/dockroot/bin/drctl restart ${name}`);
+    if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "重启失败");
+    restarted = true;
+    toast(`${name} 已重启`);
+  } catch (error) {
+    notice.textContent = error instanceof Error ? error.message : String(error);
+    notice.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
+    if (restarted) await refresh();
+  }
 }
 
 async function copyText(value) {
@@ -88,6 +117,7 @@ list.addEventListener("click", (event) => {
   if (!button) return;
   if (button.dataset.copy) void copyText(button.dataset.copy);
   if (button.dataset.open) window.location.href = button.dataset.open;
+  if (button.dataset.restart) void restartStack(button.dataset.restart, button);
 });
 refreshButton.addEventListener("click", () => void refresh());
 

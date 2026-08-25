@@ -39,10 +39,14 @@ grep -q '^ENV=QlPort=5700$' module/examples/qinglong.conf
 grep -q '^ENV=QlGrpcPort=5501$' module/examples/qinglong.conf
 test ! -e module/examples/cloudflared.conf
 grep -q '^updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json$' module/module.prop
-grep -q '"version": "v0.7.0"' update.json
+grep -q '"version": "v0.7.1"' update.json
 grep -q '^exec /data/adb/modules/dockroot/bin/drctl ' module/system/bin/drctl
 grep -q '"./kernelsu.js"' module/webroot/app.js
 grep -q 'web-status' module/webroot/app.js
+grep -q 'data-restart' module/webroot/app.js
+grep -q 'window.confirm' module/webroot/app.js
+grep -q 'drctl restart' module/webroot/app.js
+grep -q 'if (restarted) await refresh' module/webroot/app.js
 grep -q 'drctl.*service' module/service.sh
 
 bash -n module/customize.sh

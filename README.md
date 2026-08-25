@@ -222,11 +222,13 @@ HEALTHCHECK_COOLDOWN=1800
 
 ### KernelSU 容器入口
 
-在 KernelSU 的模块详情中点击“打开”即可进入 DockRoot WebUI。页面会动态读取所有 Stack，显示容器健康状态，并为已配置 `HEALTH_URL` 的容器提供“打开”和“复制地址”。例如 `http://127.0.0.1:9057/api/health` 会生成 `http://127.0.0.1:9057` 入口。
+在 KernelSU 的模块详情中点击“打开”即可进入 DockRoot WebUI。页面会动态读取所有 Stack，显示容器健康状态，并为已配置 `HEALTH_URL` 的容器提供“打开”和“复制地址”。每个 Stack 都会显示带二次确认的“重启”按钮，操作完成后自动刷新状态。例如 `http://127.0.0.1:9057/api/health` 会生成 `http://127.0.0.1:9057` 入口。
 
 ## 模块更新
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
+
+v0.7.1 为 WebUI 中的每个 Stack 增加带二次确认、过程反馈和完成后自动刷新的“重启”按钮。
 
 v0.7.0 增加通用健康保活、失败阈值与自愈冷却，并增加 KernelSU 容器入口 WebUI。
 
