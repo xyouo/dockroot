@@ -12,6 +12,8 @@
 - 查看 ruri 原始运行日志。
 - 配置容器开机自启。
 - 每 5 分钟检查自启容器，连续 3 次失败后自动恢复，并限制故障循环。
+- 停止/重启时扫描容器 rootfs 并清理未纳入 DockRoot `ps` 的孤儿进程。
+- 对启动、重启、停止和自愈进行单 Stack 互斥，防止并发操作。
 - 提供 KernelSU WebUI，动态展示容器状态、打开面板和复制地址。
 - 使用 Compose Lite 配置文件声明镜像、卷、环境变量、自定义启动命令和自启策略。
 - 提供与具体应用无关的 Stack 初始化、复制和删除命令。
@@ -220,6 +222,21 @@ HEALTHCHECK_COOLDOWN=1800
 
 可在 `/data/adb/dockroot/config.env` 修改上述参数，也可执行 `su -c 'drctl healthcheck'` 手动检查一次。只在失败或自愈时记录 `/data/adb/dockroot/logs/healthcheck.log`。该功能可恢复崩溃或端口失效的容器，但 Android 深度休眠仍可能延迟检查本身，它不等于精确定时唤醒。
 
+如果设备作为长期插电服务器，并且青龙任务必须准时，可启用 CPU 持续唤醒：
+
+```sh
+su -c 'drctl wakelock on'
+su -c 'drctl wakelock status'
+```
+
+关闭：
+
+```sh
+su -c 'drctl wakelock off'
+```
+
+开关会持久保存为 `KEEP_AWAKE=1|0`，并在开机时自动恢复。开启后可防止 CPU 进入会冻结 Node 定时器的深度休眠，但会增加待机耗电；默认为关闭。
+
 ### KernelSU 容器入口
 
 在 KernelSU 的模块详情中点击“打开”即可进入 DockRoot WebUI。页面会动态读取所有 Stack，显示容器健康状态，并为已配置 `HEALTH_URL` 的容器提供“打开”和“复制地址”。每个 Stack 都会显示带二次确认的“重启”按钮，操作完成后自动刷新状态。例如 `http://127.0.0.1:9057/api/health` 会生成 `http://127.0.0.1:9057` 入口。
@@ -227,6 +244,8 @@ HEALTHCHECK_COOLDOWN=1800
 ## 模块更新
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
+
+v0.7.2 修复重启时遗留容器孤儿进程、重复调度和生命周期并发问题，新增可选持久 CPU 唤醒锁。
 
 v0.7.1 为 WebUI 中的每个 Stack 增加带二次确认、过程反馈和完成后自动刷新的“重启”按钮。
 

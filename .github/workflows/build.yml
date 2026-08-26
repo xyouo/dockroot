@@ -10,7 +10,7 @@ on:
       version:
         description: 模块版本（不含 v）
         required: false
-        default: 0.7.1
+        default: 0.7.2
 
 permissions:
   contents: read
@@ -40,7 +40,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="${{ inputs.version || '0.7.1' }}"
+            version="${{ inputs.version || '0.7.2' }}"
           fi
           IFS=. read -r major minor patch <<< "$version"
           code=$((major * 10000 + minor * 100 + patch))

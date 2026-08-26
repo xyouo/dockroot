@@ -13,11 +13,16 @@ trap 'rm -rf "$temp_dir"' EXIT
 STATE_DIR="$temp_dir/state"
 STACK_DIR="$STATE_DIR/stacks"
 DATA_ROOT="$STATE_DIR/data"
+LOCK_DIR="$STATE_DIR/locks"
+PROC_ROOT="$temp_dir/proc"
+POWER_ROOT="$temp_dir/power"
 RUNTIME_DIR="$STATE_DIR/bin"
 VOLUME_DIR="$STATE_DIR/volumes"
 MODDIR=module
 AUTOSTART_FILE="$STATE_DIR/autostart.list"
-mkdir -p "$STACK_DIR" "$RUNTIME_DIR" "$DATA_ROOT/openlist/rootfs"
+mkdir -p "$STACK_DIR" "$RUNTIME_DIR" "$DATA_ROOT/openlist/rootfs" "$LOCK_DIR" "$PROC_ROOT/sys/kernel/random" "$POWER_ROOT"
+touch "$POWER_ROOT/wake_lock" "$POWER_ROOT/wake_unlock"
+printf 'test-boot-id\n' > "$PROC_ROOT/sys/kernel/random/boot_id"
 : > "$AUTOSTART_FILE"
 ensure_state() { mkdir -p "$STACK_DIR" "$DATA_ROOT"; }
 load_config() { :; }
@@ -37,6 +42,31 @@ pull_image() { printf 'pull_image <%s> <%s>\n' "$1" "$2" >> "$calls"; }
 autostart_add() { printf '%s\n' "$1" >> "$AUTOSTART_FILE"; }
 autostart_remove() { :; }
 require_runtime() { :; }
+
+# DockRoot ps 看不到时，仍应通过 /proc/<pid>/root 识别容器孤儿进程。
+mkdir -p "$PROC_ROOT/4242" "$PROC_ROOT/5252" "$DATA_ROOT/other/rootfs"
+ln -s "$DATA_ROOT/openlist/rootfs" "$PROC_ROOT/4242/root"
+ln -s "$DATA_ROOT/other/rootfs" "$PROC_ROOT/5252/root"
+test "$(container_rootfs_pids openlist)" = 4242
+test "$(container_all_pids openlist)" = 4242
+rm -rf "$PROC_ROOT/4242" "$PROC_ROOT/5252"
+
+# 同一 Stack 已有生命周期操作时，第二个操作必须被拒绝。
+mkdir -p "$LOCK_DIR/openlist.lock"
+printf '123 test-boot-id\n' > "$LOCK_DIR/openlist.lock/owner"
+stack_lock_owner_active() { return 0; }
+if run_stack_locked true openlist >/dev/null 2>&1; then
+  echo '活跃的容器操作锁不应被绕过' >&2
+  exit 1
+fi
+stack_lock_owner_active() { return 1; }
+run_stack_locked true openlist
+test ! -e "$LOCK_DIR/openlist.lock"
+
+acquire_wakelock
+grep -Fx "$WAKELOCK_TAG" "$POWER_ROOT/wake_lock"
+release_wakelock
+grep -Fx "$WAKELOCK_TAG" "$POWER_ROOT/wake_unlock"
 
 apply_stack openlist
 grep -F 'run_dockroot <run> <--renew> <-v>' "$calls"

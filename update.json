@@ -1,6 +1,6 @@
 {
-  "version": "v0.7.1",
-  "versionCode": 701,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.7.1/dockroot-v0.7.1.zip",
-  "changelog": "WebUI 为每个 Stack 新增重启按钮，包含二次确认、重启中反馈、失败提示和完成后自动刷新。"
+  "version": "v0.7.2",
+  "versionCode": 702,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.7.2/dockroot-v0.7.2.zip",
+  "changelog": "修复容器重启后可能残留旧 rootfs 进程并重复调度的问题；新增 Stack 生命周期锁和可选 CPU 持续唤醒开关。"
 }

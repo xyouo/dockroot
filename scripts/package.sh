@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-version="${VERSION:-0.7.1}"
-version_code="${VERSION_CODE:-701}"
+version="${VERSION:-0.7.2}"
+version_code="${VERSION_CODE:-702}"
 module_dir=build/module
 output="dist/dockroot-v${version}.zip"
 

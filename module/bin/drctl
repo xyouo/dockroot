@@ -8,6 +8,10 @@ STATE_DIR=/data/adb/dockroot
 RUNTIME_DIR="$STATE_DIR/bin"
 LOG_DIR="$STATE_DIR/logs"
 HEALTH_STATE_DIR="$STATE_DIR/health"
+LOCK_DIR="$STATE_DIR/locks"
+PROC_ROOT=${PROC_ROOT:-/proc}
+POWER_ROOT=${POWER_ROOT:-/sys/power}
+WAKELOCK_TAG=dockroot_keep_awake
 CONFIG_FILE="$STATE_DIR/config.env"
 AUTOSTART_FILE="$STATE_DIR/autostart.list"
 STACK_DIR="$STATE_DIR/stacks"
@@ -24,10 +28,10 @@ msg() { printf '[DockRoot 模块] %s\n' "$*"; }
 err() { printf '[DockRoot 模块] 错误：%s\n' "$*" >&2; }
 
 ensure_state() {
-  mkdir -p "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$HEALTH_STATE_DIR" "$STACK_DIR" "$VOLUME_DIR" 2>/dev/null || return 1
+  mkdir -p "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$HEALTH_STATE_DIR" "$LOCK_DIR" "$STACK_DIR" "$VOLUME_DIR" 2>/dev/null || return 1
   [ -f "$CONFIG_FILE" ] || cp "$MODDIR/config.env" "$CONFIG_FILE"
   [ -f "$AUTOSTART_FILE" ] || : > "$AUTOSTART_FILE"
-  chmod 0700 "$STATE_DIR" "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$HEALTH_STATE_DIR" "$STACK_DIR" 2>/dev/null || true
+  chmod 0700 "$STATE_DIR" "$RUNTIME_DIR" "$STATE_DIR/data" "$LOG_DIR" "$HEALTH_STATE_DIR" "$LOCK_DIR" "$STACK_DIR" 2>/dev/null || true
   chmod 0755 "$VOLUME_DIR" 2>/dev/null || true
   chmod 0600 "$CONFIG_FILE" "$AUTOSTART_FILE" 2>/dev/null || true
 }
@@ -44,6 +48,7 @@ load_config() {
   HEALTHCHECK_INTERVAL=300
   HEALTHCHECK_FAILURES=3
   HEALTHCHECK_COOLDOWN=1800
+  KEEP_AWAKE=0
   if [ -r "$CONFIG_FILE" ]; then
     # 仅接受已知键，避免直接执行配置文件内容。
     while IFS='=' read -r key value; do
@@ -59,6 +64,7 @@ load_config() {
         HEALTHCHECK_INTERVAL) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_INTERVAL=$value;; esac ;;
         HEALTHCHECK_FAILURES) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_FAILURES=$value;; esac ;;
         HEALTHCHECK_COOLDOWN) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_COOLDOWN=$value;; esac ;;
+        KEEP_AWAKE) case "$value" in 0|1) KEEP_AWAKE=$value;; esac ;;
       esac
     done < "$CONFIG_FILE"
   fi
@@ -425,6 +431,28 @@ container_pids() {
   run_dockroot ps "$name" 2>/dev/null | tr ' ' '\n' | sed -n '/^[0-9][0-9]*$/p'
 }
 
+container_rootfs_pids() {
+  name=$1
+  rootfs="${DATA_ROOT:-$STATE_DIR/data}/$name/rootfs"
+  [ -d "$rootfs" ] || return 0
+  for proc_root in "$PROC_ROOT"/[0-9]*/root; do
+    [ -L "$proc_root" ] || continue
+    [ "$(readlink "$proc_root" 2>/dev/null)" = "$rootfs" ] || continue
+    pid=${proc_root#"$PROC_ROOT"/}
+    pid=${pid%/root}
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    printf '%s\n' "$pid"
+  done
+}
+
+container_all_pids() {
+  name=$1
+  {
+    container_pids "$name"
+    container_rootfs_pids "$name"
+  } | sed -n '/^[0-9][0-9]*$/p' | sort -nu
+}
+
 container_is_running() {
   [ -n "$(container_pids "$1")" ]
 }
@@ -479,21 +507,76 @@ stop_stack() {
   name=${1:-}
   valid_name "$name" || { err '请提供有效配置名'; return 1; }
   require_runtime || return 1
-  if ! container_is_running "$name"; then
+  tracked_pids="$(container_pids "$name" | tr '\n' ' ')"
+  rootfs_pids="$(container_rootfs_pids "$name" | tr '\n' ' ')"
+  if [ -z "$tracked_pids" ] && [ -z "$rootfs_pids" ]; then
     return 0
   fi
-  run_dockroot stop "$name" >/dev/null 2>&1 || true
+  if [ -n "$tracked_pids" ]; then
+    run_dockroot stop "$name" >/dev/null 2>&1 || true
+  fi
   waited=0
   timeout=${STOP_TIMEOUT:-15}
   while container_is_running "$name" && [ "$waited" -lt "$timeout" ]; do
     sleep 1
     waited=$((waited + 1))
   done
-  if container_is_running "$name"; then
-    err "容器停止超时，旧进程仍存在：$name ($(container_pids "$name" | tr '\n' ' '))"
+  orphan_pids="$(container_rootfs_pids "$name" | tr '\n' ' ')"
+  if [ -n "$orphan_pids" ]; then
+    msg "正在清理未退出的容器进程：$name ($orphan_pids)"
+    container_rootfs_pids "$name" | while IFS= read -r orphan_pid; do
+      kill -TERM "$orphan_pid" 2>/dev/null || true
+    done
+    waited=0
+    while [ -n "$(container_rootfs_pids "$name")" ] && [ "$waited" -lt 5 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    orphan_pids="$(container_rootfs_pids "$name" | tr '\n' ' ')"
+    if [ -n "$orphan_pids" ]; then
+      container_rootfs_pids "$name" | while IFS= read -r orphan_pid; do
+        kill -KILL "$orphan_pid" 2>/dev/null || true
+      done
+      sleep 1
+    fi
+  fi
+  remaining_pids="$(container_all_pids "$name" | tr '\n' ' ')"
+  if [ -n "$remaining_pids" ]; then
+    err "容器停止超时，旧进程仍存在：$name ($(container_all_pids "$name" | tr '\n' ' '))"
     return 1
   fi
 }
+
+stack_lock_owner_active() {
+  lock=$1
+  [ -r "$lock/owner" ] || return 1
+  read -r owner_pid owner_boot < "$lock/owner" || return 1
+  case "$owner_pid" in ''|*[!0-9]*) return 1 ;; esac
+  current_boot="$(cat "$PROC_ROOT/sys/kernel/random/boot_id" 2>/dev/null)"
+  [ -n "$current_boot" ] && [ "$owner_boot" = "$current_boot" ] || return 1
+  kill -0 "$owner_pid" 2>/dev/null || return 1
+  cmdline="$(tr '\0' ' ' < "$PROC_ROOT/$owner_pid/cmdline" 2>/dev/null)"
+  case "$cmdline" in *drctl*) return 0 ;; *) return 1 ;; esac
+}
+
+run_stack_locked() (
+  operation=$1
+  name=$2
+  lock="$LOCK_DIR/$name.lock"
+  ensure_state || exit 1
+  if ! mkdir "$lock" 2>/dev/null; then
+    if stack_lock_owner_active "$lock"; then
+      err "容器正在执行其他操作：$name"
+      exit 1
+    fi
+    rm -rf "$lock"
+    mkdir "$lock" 2>/dev/null || { err "无法获取容器操作锁：$name"; exit 1; }
+  fi
+  boot_id="$(cat "$PROC_ROOT/sys/kernel/random/boot_id" 2>/dev/null)"
+  printf '%s %s\n' "$$" "$boot_id" > "$lock/owner"
+  trap 'rm -rf "$lock"' EXIT HUP INT TERM
+  "$operation" "$name"
+)
 
 check_stack_ports_available() {
   name=$1
@@ -577,7 +660,7 @@ start_stack() {
   msg "容器已启动并通过健康检查：$name"
 }
 
-up_stack() {
+up_stack_unlocked() {
   name=${1:-}
   valid_name "$name" || { err '请提供有效配置名'; return 1; }
   required_files_ready "$name" || return 1
@@ -586,8 +669,16 @@ up_stack() {
   start_stack "$name"
 }
 
+up_stack() {
+  name=${1:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  run_stack_locked up_stack_unlocked "$name"
+}
+
 down_stack() {
-  stop_stack "${1:-}"
+  name=${1:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  run_stack_locked stop_stack "$name"
 }
 
 status_stack() {
@@ -595,6 +686,7 @@ status_stack() {
   valid_name "$name" || { err '请提供有效配置名'; return 1; }
   file="$(stack_file "$name")"
   [ -r "$file" ] || { err "配置不存在：$file"; return 1; }
+  load_config
   migrate_stack "$name"
   pids="$(container_pids "$name" | tr '\n' ' ')"
   printf 'name=%s\n' "$name"
@@ -744,8 +836,66 @@ watchdog() {
 }
 
 service_main() {
+  ensure_state || return 1
+  load_config
+  if [ "$KEEP_AWAKE" = 1 ]; then
+    acquire_wakelock || msg '警告：无法获取 CPU 唤醒锁'
+    trap 'release_wakelock' EXIT HUP INT TERM
+  else
+    release_wakelock
+  fi
   boot
   watchdog
+}
+
+acquire_wakelock() {
+  [ -w "$POWER_ROOT/wake_lock" ] || return 1
+  printf '%s\n' "$WAKELOCK_TAG" > "$POWER_ROOT/wake_lock"
+}
+
+release_wakelock() {
+  [ -w "$POWER_ROOT/wake_unlock" ] || return 0
+  printf '%s\n' "$WAKELOCK_TAG" > "$POWER_ROOT/wake_unlock" 2>/dev/null || true
+}
+
+wakelock_is_active() {
+  [ -r "$POWER_ROOT/wake_lock" ] || return 1
+  grep -F "$WAKELOCK_TAG" "$POWER_ROOT/wake_lock" >/dev/null 2>&1
+}
+
+save_keep_awake() {
+  value=$1
+  ensure_state || return 1
+  temp="$CONFIG_FILE.tmp.$$"
+  awk -F= -v value="$value" '
+    BEGIN { found=0 }
+    $1 == "KEEP_AWAKE" { print "KEEP_AWAKE=" value; found=1; next }
+    { print }
+    END { if (!found) print "KEEP_AWAKE=" value }
+  ' "$CONFIG_FILE" > "$temp" || { rm -f "$temp"; return 1; }
+  chmod 0600 "$temp" && mv -f "$temp" "$CONFIG_FILE"
+}
+
+wakelock_command() {
+  action=${1:-status}
+  case "$action" in
+    on)
+      acquire_wakelock || { err '设备不支持 /sys/power/wake_lock 或权限不足'; return 1; }
+      save_keep_awake 1 || { release_wakelock; return 1; }
+      msg 'CPU 持续唤醒已启用，定时任务更准时，但会增加待机耗电'
+      ;;
+    off)
+      release_wakelock
+      save_keep_awake 0 || return 1
+      msg 'CPU 持续唤醒已停用'
+      ;;
+    status)
+      load_config
+      printf 'configured=%s\n' "$KEEP_AWAKE"
+      printf 'active=%s\n' "$(wakelock_is_active && echo yes || echo no)"
+      ;;
+    *) err '用法：wakelock on|off|status'; return 1 ;;
+  esac
 }
 
 stack_public_url() {
@@ -757,6 +907,7 @@ stack_public_url() {
 
 web_status() {
   ensure_state || return 1
+  load_config
   for file in "$STACK_DIR"/*.conf; do
     [ -f "$file" ] || continue
     name="$(basename "$file" .conf)"
@@ -1078,6 +1229,7 @@ DockRoot 容器模块（实验性）
   install-runtime                 下载并校验 DockRoot/ruri
   doctor                          输出兼容性诊断
   healthcheck                     立即检查自启容器并按阈值自愈
+  wakelock on|off|status          控制 CPU 持续唤醒（会增加耗电）
   pull <镜像:标签> <容器名>       拉取镜像
   run [-d] <容器名> [命令...]     运行或进入容器
   stop <容器名>                   停止容器
@@ -1115,6 +1267,7 @@ main() {
     service) service_main ;;
     watchdog) watchdog ;;
     healthcheck) healthcheck_once ;;
+    wakelock) wakelock_command "${1:-status}" ;;
     web-status) web_status ;;
     apply) apply_stack "${1:-}" ;;
     up) up_stack "${1:-}" ;;
