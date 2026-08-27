@@ -49,6 +49,7 @@ grep -q 'drctl restart' module/webroot/app.js
 grep -q 'if (restarted) await refresh' module/webroot/app.js
 grep -q 'drctl.*service' module/service.sh
 grep -q 'wakelock on|off|status' module/bin/drctl
+grep -q '2>/dev/null || wakelock_is_active' module/bin/drctl
 grep -q '^KEEP_AWAKE=0$' module/config.env
 
 bash -n module/customize.sh

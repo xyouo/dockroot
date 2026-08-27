@@ -850,7 +850,9 @@ service_main() {
 
 acquire_wakelock() {
   [ -w "$POWER_ROOT/wake_lock" ] || return 1
-  printf '%s\n' "$WAKELOCK_TAG" > "$POWER_ROOT/wake_lock"
+  # 部分 Android 内核会先成功持锁，再向写入方返回 EINVAL。
+  # 此时以 sysfs 中的实际锁状态为准，避免误报失败且漏存配置。
+  printf '%s\n' "$WAKELOCK_TAG" > "$POWER_ROOT/wake_lock" 2>/dev/null || wakelock_is_active
 }
 
 release_wakelock() {
