@@ -44,6 +44,8 @@ grep -q '"version": "v0.8.0"' update.json
 grep -q '^exec /data/adb/modules/dockroot/bin/drctl ' module/system/bin/drctl
 grep -q '"./kernelsu.js"' module/webroot/app.js
 grep -q 'web-status' module/webroot/app.js
+grep -q '局域网地址' module/webroot/app.js
+grep -q 'device_lan_ipv4' module/bin/drctl
 grep -q 'data-restart' module/webroot/app.js
 grep -q 'window.confirm' module/webroot/app.js
 grep -q 'drctl restart' module/webroot/app.js

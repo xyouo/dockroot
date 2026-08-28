@@ -334,6 +334,7 @@ stack_health_ok() {
   url="$(stack_values "$1" HEALTH_URL | head -n 1)"
   [ "$1" = dashboard ]
 }
+device_lan_ipv4() { printf '192.168.43.1\n'; }
 web_status > "$temp_dir/web-status"
-grep -F $'dashboard\thealthy\thttp://127.0.0.1:8123' "$temp_dir/web-status"
-grep -F $'openlist\tunhealthy\thttp://127.0.0.1:5244' "$temp_dir/web-status"
+grep -F $'dashboard\thealthy\thttp://127.0.0.1:8123\thttp://192.168.43.1:8123' "$temp_dir/web-status"
+grep -F $'openlist\tunhealthy\thttp://127.0.0.1:5244\thttp://192.168.43.1:5244' "$temp_dir/web-status"

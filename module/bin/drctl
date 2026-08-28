@@ -1021,9 +1021,44 @@ stack_public_url() {
   printf '%s\n' "$url" | sed 's#^\(http://[^/]*\).*#\1#'
 }
 
+device_lan_ipv4() {
+  ip -o -4 addr show 2>/dev/null | awk '
+    function is_private(ip, octets) {
+      split(ip, octets, ".")
+      return octets[1] == 10 ||
+        (octets[1] == 172 && octets[2] >= 16 && octets[2] <= 31) ||
+        (octets[1] == 192 && octets[2] == 168)
+    }
+    {
+      interface = $2
+      sub(/@.*/, "", interface)
+      address = $4
+      sub(/\/.*/, "", address)
+      if (interface ~ /^(wlan|ap|swlan|softap|eth|en|rndis|usb|br|lan)/ && is_private(address)) {
+        print address
+        exit
+      }
+    }
+  '
+}
+
+stack_lan_url() {
+  url=$1
+  lan_ip=$2
+  [ -n "$url" ] && [ -n "$lan_ip" ] || return 0
+  scheme=${url%%://*}
+  [ "$scheme" = http ] || [ "$scheme" = https ] || return 0
+  host_port=${url#*://}
+  case "$host_port" in
+    *:*) port=${host_port##*:}; printf '%s://%s:%s\n' "$scheme" "$lan_ip" "$port" ;;
+    *) printf '%s://%s\n' "$scheme" "$lan_ip" ;;
+  esac
+}
+
 web_status() {
   ensure_state || return 1
   load_config
+  lan_ip="$(device_lan_ipv4 | head -n 1)"
   for file in "$STACK_DIR"/*.conf; do
     [ -f "$file" ] || continue
     name="$(basename "$file" .conf)"
@@ -1035,7 +1070,8 @@ web_status() {
       state=stopped
     fi
     public_url="$(stack_public_url "$name")"
-    printf '%s\t%s\t%s\n' "$name" "$state" "$public_url"
+    lan_url="$(stack_lan_url "$public_url" "$lan_ip")"
+    printf '%s\t%s\t%s\t%s\n' "$name" "$state" "$public_url" "$lan_url"
   done
 }
 

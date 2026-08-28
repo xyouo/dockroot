@@ -26,6 +26,13 @@ h2 { margin: 0; font-size: 20px; }
 .status.warn { color: #c27a00; }
 .status.off { color: #84909b; }
 .url { min-height: 20px; margin: 16px 0; overflow-wrap: anywhere; color: #66717d; font-family: ui-monospace, monospace; font-size: 13px; }
+.addresses { display: grid; gap: 12px; margin: 16px 0; }
+.address-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-radius: 12px; background: #f5f7f8; }
+.address-text { min-width: 0; display: grid; gap: 4px; }
+.address-text span { color: #66717d; font-size: 12px; font-weight: 700; }
+.address-text code { overflow-wrap: anywhere; font-size: 13px; }
+.address-actions { flex: 0 0 auto; display: flex; gap: 8px; }
+.address-actions button { min-height: 36px; padding: 0 12px; }
 .actions { display: flex; gap: 10px; }
 .actions button { flex: 1; }
 .wake-card .actions { flex-wrap: wrap; }
@@ -41,8 +48,15 @@ footer { margin-top: 24px; color: #7a858f; font-size: 12px; line-height: 1.6; }
   :root { color: #edf2f5; background: #101416; }
   .subtitle, .url, footer, .no-url, .loading { color: #9ba6ae; }
   .card { border-color: #30383d; background: #1a2024; box-shadow: none; }
+  .address-row { background: #222a2f; }
+  .address-text span { color: #9ba6ae; }
   button { border-color: #3a444a; background: #222a2f; }
   button:active { background: #2b353b; }
   .actions .danger { border-color: #694242; color: #ffaaaa; }
   .notice { color: #ffb8b8; background: #3a2020; }
+}
+
+@media (max-width: 520px) {
+  .address-row { align-items: stretch; flex-direction: column; }
+  .address-actions button { flex: 1; }
 }

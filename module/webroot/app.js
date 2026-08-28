@@ -25,8 +25,8 @@ function escapeHtml(value) {
 
 function parseRows(output) {
   return output.trim().split("\n").filter(Boolean).map((line) => {
-    const [name = "", state = "stopped", url = ""] = line.split("\t");
-    return { name, state, url };
+    const [name = "", state = "stopped", localUrl = "", lanUrl = ""] = line.split("\t");
+    return { name, state, localUrl, lanUrl };
   });
 }
 
@@ -61,28 +61,36 @@ function renderWake(values) {
   });
 }
 
+function addressRow(label, url, kind) {
+  if (!url) return "";
+  const safeUrl = escapeHtml(url);
+  return `<div class="address-row">
+    <div class="address-text"><span>${label}</span><code>${safeUrl}</code></div>
+    <div class="address-actions">
+      <button class="primary" data-open="${safeUrl}" type="button">打开</button>
+      <button data-copy="${safeUrl}" type="button">复制${kind}</button>
+    </div>
+  </div>`;
+}
+
 function render(rows) {
   if (!rows.length) {
     list.innerHTML = '<div class="loading">暂无 Stack 配置。</div>';
     return;
   }
-  list.innerHTML = rows.map(({ name, state, url }) => {
+  list.innerHTML = rows.map(({ name, state, localUrl, lanUrl }) => {
     const [stateLabel, stateClass] = labels[state] || labels.stopped;
     const safeName = escapeHtml(name);
-    const safeUrl = escapeHtml(url);
-    const addressActions = url
-      ? `<button class="primary" data-open="${safeUrl}" type="button">打开</button>
-         <button data-copy="${safeUrl}" type="button">复制地址</button>`
+    const addresses = localUrl
+      ? `${addressRow("本机", localUrl, "本机地址")}${addressRow("局域网", lanUrl, "局域网地址")}`
       : '<span class="no-url">未配置 HEALTH_URL</span>';
-    const actions = `${addressActions}
-      <button class="danger" data-restart="${safeName}" type="button">重启</button>`;
     return `<article class="card">
       <div class="card-title">
         <h2>${safeName}</h2>
         <span class="status ${stateClass}"><i></i>${stateLabel}</span>
       </div>
-      <p class="url">${safeUrl || "无可打开地址"}</p>
-      <div class="actions">${actions}</div>
+      <div class="addresses">${addresses}</div>
+      <div class="actions"><button class="danger" data-restart="${safeName}" type="button">重启</button></div>
     </article>`;
   }).join("");
 }
