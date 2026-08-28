@@ -2,5 +2,5 @@
   "version": "v0.8.0",
   "versionCode": 800,
   "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.0/dockroot-v0.8.0.zip",
-  "changelog": "新增低耗电定时短唤醒：默认在 09:57、17:57 唤醒并保持 5 分钟；WebUI 可切换定时、全天或关闭模式。"
+  "changelog": "新增低耗电定时短唤醒：默认在 09:57、17:57 唤醒并保持 5 分钟；WebUI 可切换唤醒模式，并同时显示本机与当前私有局域网入口。"
 }
