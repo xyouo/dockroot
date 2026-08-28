@@ -12,6 +12,9 @@ LOCK_DIR="$STATE_DIR/locks"
 PROC_ROOT=${PROC_ROOT:-/proc}
 POWER_ROOT=${POWER_ROOT:-/sys/power}
 WAKELOCK_TAG=dockroot_keep_awake
+SCHEDULED_WAKELOCK_TAG=dockroot_scheduled_wake
+WAKEALARM_PID_FILE="$STATE_DIR/wakealarm.pid"
+WAKEALARM_STATUS_FILE="$STATE_DIR/wakealarm.status"
 CONFIG_FILE="$STATE_DIR/config.env"
 AUTOSTART_FILE="$STATE_DIR/autostart.list"
 STACK_DIR="$STATE_DIR/stacks"
@@ -49,6 +52,10 @@ load_config() {
   HEALTHCHECK_FAILURES=3
   HEALTHCHECK_COOLDOWN=1800
   KEEP_AWAKE=0
+  SCHEDULED_WAKE=0
+  WAKE_TIMES=09:57,17:57
+  WAKE_HOLD_SECONDS=300
+  WAKE_TIMEZONE=Asia/Shanghai
   if [ -r "$CONFIG_FILE" ]; then
     # 仅接受已知键，避免直接执行配置文件内容。
     while IFS='=' read -r key value; do
@@ -65,6 +72,10 @@ load_config() {
         HEALTHCHECK_FAILURES) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_FAILURES=$value;; esac ;;
         HEALTHCHECK_COOLDOWN) case "$value" in ''|*[!0-9]*) ;; *) HEALTHCHECK_COOLDOWN=$value;; esac ;;
         KEEP_AWAKE) case "$value" in 0|1) KEEP_AWAKE=$value;; esac ;;
+        SCHEDULED_WAKE) case "$value" in 0|1) SCHEDULED_WAKE=$value;; esac ;;
+        WAKE_TIMES) case "$value" in ''|*[!0-9,:]*) ;; *) WAKE_TIMES=$value;; esac ;;
+        WAKE_HOLD_SECONDS) case "$value" in ''|*[!0-9]*) ;; *) WAKE_HOLD_SECONDS=$value;; esac ;;
+        WAKE_TIMEZONE) case "$value" in ''|*[!A-Za-z0-9_+/-]*) ;; *) WAKE_TIMEZONE=$value;; esac ;;
       esac
     done < "$CONFIG_FILE"
   fi
@@ -825,12 +836,18 @@ healthcheck_once() {
 
 watchdog() {
   ensure_state || return 1
-  load_config
-  [ "$HEALTHCHECK_ENABLE" = 1 ] || return 0
-  case "$HEALTHCHECK_INTERVAL" in 0) HEALTHCHECK_INTERVAL=300 ;; esac
   while true; do
-    healthcheck_once >> "$LOG_DIR/healthcheck.log" 2>&1
-    rotate_log "$LOG_DIR/healthcheck.log"
+    load_config
+    case "$HEALTHCHECK_INTERVAL" in 0) HEALTHCHECK_INTERVAL=300 ;; esac
+    if [ "$SCHEDULED_WAKE" = 1 ]; then
+      start_scheduled_wake >> "$LOG_DIR/wakealarm.log" 2>&1 || true
+    elif scheduled_wake_is_active; then
+      stop_scheduled_wake
+    fi
+    if [ "$HEALTHCHECK_ENABLE" = 1 ]; then
+      healthcheck_once >> "$LOG_DIR/healthcheck.log" 2>&1
+      rotate_log "$LOG_DIR/healthcheck.log"
+    fi
     sleep "$HEALTHCHECK_INTERVAL"
   done
 }
@@ -839,13 +856,81 @@ service_main() {
   ensure_state || return 1
   load_config
   if [ "$KEEP_AWAKE" = 1 ]; then
+    stop_scheduled_wake
     acquire_wakelock || msg '警告：无法获取 CPU 唤醒锁'
-    trap 'release_wakelock' EXIT HUP INT TERM
+  elif [ "$SCHEDULED_WAKE" = 1 ]; then
+    release_wakelock
+    start_scheduled_wake || msg '警告：定时短唤醒服务启动失败'
   else
+    stop_scheduled_wake
     release_wakelock
   fi
+  trap 'stop_scheduled_wake; release_wakelock' EXIT HUP INT TERM
   boot
   watchdog
+}
+
+scheduled_wake_pid() {
+  [ -r "$WAKEALARM_PID_FILE" ] || return 1
+  pid="$(cat "$WAKEALARM_PID_FILE" 2>/dev/null)"
+  case "$pid" in ''|*[!0-9]*) return 1 ;; esac
+  kill -0 "$pid" 2>/dev/null || return 1
+  cmdline="$(tr '\0' ' ' < "$PROC_ROOT/$pid/cmdline" 2>/dev/null)"
+  case "$cmdline" in *wakealarm*"$WAKEALARM_STATUS_FILE"*) printf '%s\n' "$pid" ;; *) return 1 ;; esac
+}
+
+scheduled_wake_is_active() {
+  scheduled_wake_pid >/dev/null 2>&1
+}
+
+scheduled_wakelock_is_active() {
+  [ -r "$POWER_ROOT/wake_lock" ] || return 1
+  grep -F "$SCHEDULED_WAKELOCK_TAG" "$POWER_ROOT/wake_lock" >/dev/null 2>&1
+}
+
+release_scheduled_wakelock() {
+  [ -w "$POWER_ROOT/wake_unlock" ] || return 0
+  printf '%s\n' "$SCHEDULED_WAKELOCK_TAG" > "$POWER_ROOT/wake_unlock" 2>/dev/null || true
+}
+
+stop_scheduled_wake() {
+  pid="$(scheduled_wake_pid 2>/dev/null)" || pid=''
+  if [ -n "$pid" ]; then
+    kill -TERM "$pid" 2>/dev/null || true
+    waited=0
+    while kill -0 "$pid" 2>/dev/null && [ "$waited" -lt 5 ]; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    kill -KILL "$pid" 2>/dev/null || true
+  fi
+  rm -f "$WAKEALARM_PID_FILE" "$WAKEALARM_STATUS_FILE"
+  release_scheduled_wakelock
+}
+
+start_scheduled_wake() {
+  scheduled_wake_is_active && return 0
+  binary="$MODDIR/bin/wakealarm"
+  [ -x "$binary" ] || { err "缺少定时唤醒助手：$binary"; return 1; }
+  rm -f "$WAKEALARM_PID_FILE" "$WAKEALARM_STATUS_FILE"
+  nohup "$binary" \
+    -times "$WAKE_TIMES" \
+    -timezone "$WAKE_TIMEZONE" \
+    -hold "$WAKE_HOLD_SECONDS" \
+    -tag "$SCHEDULED_WAKELOCK_TAG" \
+    -wake-lock "$POWER_ROOT/wake_lock" \
+    -wake-unlock "$POWER_ROOT/wake_unlock" \
+    -status-file "$WAKEALARM_STATUS_FILE" \
+    -log-file "$LOG_DIR/wakealarm.log" \
+    >/dev/null 2>&1 </dev/null &
+  pid=$!
+  printf '%s\n' "$pid" > "$WAKEALARM_PID_FILE"
+  sleep 1
+  if ! scheduled_wake_is_active; then
+    rm -f "$WAKEALARM_PID_FILE"
+    err "定时唤醒助手启动失败，请查看 $LOG_DIR/wakealarm.log"
+    return 1
+  fi
 }
 
 acquire_wakelock() {
@@ -865,38 +950,67 @@ wakelock_is_active() {
   grep -F "$WAKELOCK_TAG" "$POWER_ROOT/wake_lock" >/dev/null 2>&1
 }
 
-save_keep_awake() {
-  value=$1
+save_config_value() {
+  key=$1
+  value=$2
   ensure_state || return 1
   temp="$CONFIG_FILE.tmp.$$"
-  awk -F= -v value="$value" '
+  awk -F= -v key="$key" -v value="$value" '
     BEGIN { found=0 }
-    $1 == "KEEP_AWAKE" { print "KEEP_AWAKE=" value; found=1; next }
+    $1 == key { print key "=" value; found=1; next }
     { print }
-    END { if (!found) print "KEEP_AWAKE=" value }
+    END { if (!found) print key "=" value }
   ' "$CONFIG_FILE" > "$temp" || { rm -f "$temp"; return 1; }
   chmod 0600 "$temp" && mv -f "$temp" "$CONFIG_FILE"
+}
+
+save_wake_mode() {
+  continuous=$1
+  scheduled=$2
+  save_config_value KEEP_AWAKE "$continuous" || return 1
+  save_config_value SCHEDULED_WAKE "$scheduled"
 }
 
 wakelock_command() {
   action=${1:-status}
   case "$action" in
     on)
+      stop_scheduled_wake
       acquire_wakelock || { err '设备不支持 /sys/power/wake_lock 或权限不足'; return 1; }
-      save_keep_awake 1 || { release_wakelock; return 1; }
+      save_wake_mode 1 0 || { release_wakelock; return 1; }
       msg 'CPU 持续唤醒已启用，定时任务更准时，但会增加待机耗电'
       ;;
-    off)
+    scheduled)
+      [ -x "$MODDIR/bin/wakealarm" ] || { err '当前模块未包含定时唤醒助手，请先更新模块'; return 1; }
+      stop_scheduled_wake
       release_wakelock
-      save_keep_awake 0 || return 1
-      msg 'CPU 持续唤醒已停用'
+      save_wake_mode 0 1 || return 1
+      load_config
+      start_scheduled_wake || return 1
+      msg "定时短唤醒已启用：$WAKE_TIMES，每次保持 ${WAKE_HOLD_SECONDS} 秒"
+      ;;
+    off)
+      stop_scheduled_wake
+      release_wakelock
+      save_wake_mode 0 0 || return 1
+      msg 'CPU 唤醒已停用'
       ;;
     status)
       load_config
       printf 'configured=%s\n' "$KEEP_AWAKE"
       printf 'active=%s\n' "$(wakelock_is_active && echo yes || echo no)"
+      if [ "$KEEP_AWAKE" = 1 ]; then
+        printf 'mode=continuous\n'
+      elif [ "$SCHEDULED_WAKE" = 1 ]; then
+        printf 'mode=scheduled\n'
+      else
+        printf 'mode=off\n'
+      fi
+      printf 'scheduler=%s\n' "$(scheduled_wake_is_active && echo yes || echo no)"
+      printf 'scheduled_lock=%s\n' "$(scheduled_wakelock_is_active && echo yes || echo no)"
+      [ -r "$WAKEALARM_STATUS_FILE" ] && cat "$WAKEALARM_STATUS_FILE"
       ;;
-    *) err '用法：wakelock on|off|status'; return 1 ;;
+    *) err '用法：wakelock on|scheduled|off|status'; return 1 ;;
   esac
 }
 
@@ -1231,7 +1345,7 @@ DockRoot 容器模块（实验性）
   install-runtime                 下载并校验 DockRoot/ruri
   doctor                          输出兼容性诊断
   healthcheck                     立即检查自启容器并按阈值自愈
-  wakelock on|off|status          控制 CPU 持续唤醒（会增加耗电）
+  wakelock on|scheduled|off|status 控制全天或定时短唤醒
   pull <镜像:标签> <容器名>       拉取镜像
   run [-d] <容器名> [命令...]     运行或进入容器
   stop <容器名>                   停止容器

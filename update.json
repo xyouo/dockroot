@@ -1,6 +1,6 @@
 {
-  "version": "v0.7.2",
-  "versionCode": 702,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.7.2/dockroot-v0.7.2.zip",
-  "changelog": "修复容器重启后可能残留旧 rootfs 进程并重复调度的问题；新增 Stack 生命周期锁和可选 CPU 持续唤醒开关。"
+  "version": "v0.8.0",
+  "versionCode": 800,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.0/dockroot-v0.8.0.zip",
+  "changelog": "新增低耗电定时短唤醒：默认在 09:57、17:57 唤醒并保持 5 分钟；WebUI 可切换定时、全天或关闭模式。"
 }

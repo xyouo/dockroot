@@ -17,6 +17,7 @@ button:disabled { opacity: .55; }
 .icon-button { flex: 0 0 auto; }
 .grid { display: grid; gap: 14px; margin-top: 24px; }
 .card { padding: 18px; border: 1px solid #e1e5e8; border-radius: 18px; background: #fff; box-shadow: 0 8px 28px rgba(25, 42, 55, .06); }
+.wake-card { margin-top: 24px; }
 .card-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 h2 { margin: 0; font-size: 20px; }
 .status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
@@ -27,6 +28,8 @@ h2 { margin: 0; font-size: 20px; }
 .url { min-height: 20px; margin: 16px 0; overflow-wrap: anywhere; color: #66717d; font-family: ui-monospace, monospace; font-size: 13px; }
 .actions { display: flex; gap: 10px; }
 .actions button { flex: 1; }
+.wake-card .actions { flex-wrap: wrap; }
+.wake-card .actions button { min-width: 120px; }
 .actions .primary { border-color: #13766f; color: #fff; background: #13766f; }
 .actions .danger { border-color: #d8b4b4; color: #a52f2f; }
 .no-url, .loading { color: #78838e; font-size: 14px; }

@@ -2,10 +2,14 @@
 
 set -euo pipefail
 
-version="${VERSION:-0.7.2}"
-version_code="${VERSION_CODE:-702}"
+version="${VERSION:-0.8.0}"
+version_code="${VERSION_CODE:-800}"
 module_dir=build/module
 output="dist/dockroot-v${version}.zip"
+
+if [[ ! -x module/bin/wakealarm ]]; then
+  bash scripts/build-wakealarm.sh
+fi
 
 rm -rf "$module_dir"
 mkdir -p "$module_dir" dist

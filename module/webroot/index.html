@@ -18,6 +18,18 @@
         <button id="refresh" class="icon-button" type="button" aria-label="刷新">刷新</button>
       </header>
       <section id="notice" class="notice" hidden></section>
+      <section class="card wake-card" aria-live="polite">
+        <div class="card-title">
+          <h2>CPU 唤醒</h2>
+          <span id="wake-status" class="status off"><i></i>正在读取</span>
+        </div>
+        <p id="wake-detail" class="url">正在读取唤醒模式…</p>
+        <div id="wake-actions" class="actions">
+          <button class="primary" data-wake="scheduled" type="button">定时短唤醒</button>
+          <button data-wake="on" type="button">全天唤醒</button>
+          <button class="danger" data-wake="off" type="button">关闭</button>
+        </div>
+      </section>
       <section id="containers" class="grid" aria-live="polite">
         <div class="loading">正在读取容器状态…</div>
       </section>

@@ -222,7 +222,25 @@ HEALTHCHECK_COOLDOWN=1800
 
 可在 `/data/adb/dockroot/config.env` 修改上述参数，也可执行 `su -c 'drctl healthcheck'` 手动检查一次。只在失败或自愈时记录 `/data/adb/dockroot/logs/healthcheck.log`。该功能可恢复崩溃或端口失效的容器，但 Android 深度休眠仍可能延迟检查本身，它不等于精确定时唤醒。
 
-如果设备作为长期插电服务器，并且青龙任务必须准时，可启用 CPU 持续唤醒：
+如果青龙只在固定时刻需要准时运行，推荐定时短唤醒：
+
+```sh
+su -c 'drctl wakelock scheduled'
+su -c 'drctl wakelock status'
+```
+
+默认每天在 `09:57`、`17:57` 唤醒，并分别保持 300 秒，覆盖 `09:58`、`17:58` 启动且在整点抢兑的任务。可在 `/data/adb/dockroot/config.env` 修改：
+
+```ini
+SCHEDULED_WAKE=1
+WAKE_TIMES=09:57,17:57
+WAKE_HOLD_SECONDS=300
+WAKE_TIMEZONE=Asia/Shanghai
+```
+
+定时助手使用内核 `CLOCK_REALTIME_ALARM`，不会覆盖 Android 的其他闹钟；等待期间不持有 CPU 唤醒锁，只有进入配置窗口才短时持锁。
+
+如果设备作为长期插电服务器，仍可启用 CPU 全天持续唤醒：
 
 ```sh
 su -c 'drctl wakelock on'
@@ -235,7 +253,7 @@ su -c 'drctl wakelock status'
 su -c 'drctl wakelock off'
 ```
 
-开关会持久保存为 `KEEP_AWAKE=1|0`，并在开机时自动恢复。开启后可防止 CPU 进入会冻结 Node 定时器的深度休眠，但会增加待机耗电；默认为关闭。
+模式会持久保存并在开机时自动恢复。`on` 与 `scheduled` 互斥；`off` 会同时关闭两种模式。全天唤醒可防止 CPU 深度休眠，但会明显增加待机耗电，通常只建议长期插电设备使用。
 
 ### KernelSU 容器入口
 
@@ -244,6 +262,8 @@ su -c 'drctl wakelock off'
 ## 模块更新
 
 模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
+
+v0.8.0 新增 Android arm64 内核定时唤醒助手，可在指定时间窗口短时唤醒 CPU，避免为了两个定时任务全天持锁。
 
 v0.7.2 修复重启时遗留容器孤儿进程、重复调度和生命周期并发问题，新增可选持久 CPU 唤醒锁。
 

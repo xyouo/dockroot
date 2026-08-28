@@ -3,6 +3,9 @@ import { exec, toast } from "./kernelsu.js";
 const list = document.querySelector("#containers");
 const notice = document.querySelector("#notice");
 const refreshButton = document.querySelector("#refresh");
+const wakeStatus = document.querySelector("#wake-status");
+const wakeDetail = document.querySelector("#wake-detail");
+const wakeActions = document.querySelector("#wake-actions");
 
 const labels = {
   healthy: ["运行正常", "ok"],
@@ -24,6 +27,37 @@ function parseRows(output) {
   return output.trim().split("\n").filter(Boolean).map((line) => {
     const [name = "", state = "stopped", url = ""] = line.split("\t");
     return { name, state, url };
+  });
+}
+
+function parseValues(output) {
+  return Object.fromEntries(output.trim().split("\n").filter(Boolean).map((line) => {
+    const separator = line.indexOf("=");
+    return separator < 0 ? [line, ""] : [line.slice(0, separator), line.slice(separator + 1)];
+  }));
+}
+
+function renderWake(values) {
+  const mode = values.mode || "off";
+  const labelsByMode = {
+    scheduled: ["定时短唤醒", "ok"],
+    continuous: ["全天唤醒", "warn"],
+    off: ["已关闭", "off"],
+  };
+  const [label, stateClass] = labelsByMode[mode] || labelsByMode.off;
+  wakeStatus.className = `status ${stateClass}`;
+  wakeStatus.innerHTML = `<i></i>${label}`;
+  if (mode === "scheduled") {
+    const nextEpoch = Number(values.next_epoch || 0);
+    const next = nextEpoch ? new Date(nextEpoch * 1000).toLocaleString() : "正在计算";
+    wakeDetail.textContent = `等待期间允许深度休眠；下一次唤醒：${next}`;
+  } else if (mode === "continuous") {
+    wakeDetail.textContent = "CPU 将持续保持唤醒，定时最稳定，但会明显增加待机耗电。";
+  } else {
+    wakeDetail.textContent = "未主动唤醒 CPU，设备休眠时任务可能延迟。";
+  }
+  wakeActions.querySelectorAll("button").forEach((button) => {
+    button.disabled = button.dataset.wake === mode;
   });
 }
 
@@ -94,6 +128,36 @@ async function copyText(value) {
   toast("地址已复制");
 }
 
+async function refreshWake() {
+  try {
+    const result = await exec("/data/adb/modules/dockroot/bin/drctl wakelock status");
+    if (result.errno !== 0) throw new Error(result.stderr || "唤醒状态读取失败");
+    renderWake(parseValues(result.stdout));
+  } catch (error) {
+    wakeStatus.className = "status warn";
+    wakeStatus.innerHTML = "<i></i>读取失败";
+    wakeDetail.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+async function setWakeMode(mode, button) {
+  if (mode === "on" && !window.confirm("全天唤醒会明显增加待机耗电，确定继续吗？")) return;
+  const oldText = button.textContent;
+  button.disabled = true;
+  button.textContent = "设置中…";
+  try {
+    const result = await exec(`/data/adb/modules/dockroot/bin/drctl wakelock ${mode}`);
+    if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "设置失败");
+    toast("唤醒模式已更新");
+  } catch (error) {
+    notice.textContent = error instanceof Error ? error.message : String(error);
+    notice.hidden = false;
+  } finally {
+    button.textContent = oldText;
+    await refreshWake();
+  }
+}
+
 async function refresh() {
   refreshButton.disabled = true;
   refreshButton.textContent = "刷新中…";
@@ -119,6 +183,10 @@ list.addEventListener("click", (event) => {
   if (button.dataset.open) window.location.href = button.dataset.open;
   if (button.dataset.restart) void restartStack(button.dataset.restart, button);
 });
-refreshButton.addEventListener("click", () => void refresh());
+refreshButton.addEventListener("click", () => void Promise.all([refresh(), refreshWake()]));
+wakeActions.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-wake]");
+  if (button) void setWakeMode(button.dataset.wake, button);
+});
 
-void refresh();
+void Promise.all([refresh(), refreshWake()]);

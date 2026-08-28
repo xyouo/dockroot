@@ -10,7 +10,7 @@ on:
       version:
         description: 模块版本（不含 v）
         required: false
-        default: 0.7.2
+        default: 0.8.0
 
 permissions:
   contents: read
@@ -24,11 +24,21 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v7
 
+      - name: 配置 Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: 测试并构建定时唤醒助手
+        run: |
+          go test ./tools/wakealarm
+          bash scripts/build-wakealarm.sh
+
       - name: ShellCheck
         run: |
           shellcheck -s sh module/customize.sh module/service.sh module/uninstall.sh
           shellcheck -s sh module/bin/drctl module/bin/migrate-module-id module/system/bin/drctl
-          shellcheck -s bash scripts/package.sh tests/*.sh
+          shellcheck -s bash scripts/build-wakealarm.sh scripts/package.sh tests/*.sh
 
       - name: 运行测试
         run: bash tests/test-module.sh
@@ -40,7 +50,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             version="${GITHUB_REF_NAME#v}"
           else
-            version="${{ inputs.version || '0.7.2' }}"
+            version="${{ inputs.version || '0.8.0' }}"
           fi
           IFS=. read -r major minor patch <<< "$version"
           code=$((major * 10000 + minor * 100 + patch))
