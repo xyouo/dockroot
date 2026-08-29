@@ -34,9 +34,9 @@ su -c 'drctl logs alpine 100'        # 日志
 - `HEALTH_URL=`：HTTP 健康检查
 
 ```sh
-su -c 'drctl stack init whoami traefik/whoami:latest'
-# 编辑 /data/adb/dockroot/stacks/whoami.conf 后：
-su -c 'drctl up whoami'
+su -c 'drctl stack init myapp nginx:alpine'
+# 编辑 /data/adb/dockroot/stacks/myapp.conf 后：
+su -c 'drctl up myapp'
 ```
 
 常用：
