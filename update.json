@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.2",
-  "versionCode": 802,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.2/dockroot-v0.8.2.zip",
-  "changelog": "WebUI 为每个 Stack 增加持久化的开机自启开关；切换时同步修改 Stack 配置和自启列表，不改变容器当前运行状态。"
+  "version": "v0.8.3",
+  "versionCode": 803,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.3/dockroot-v0.8.3.zip",
+  "changelog": "WebUI 增加每个容器的启动/停止按钮并整体压缩按钮；修复部分 bind 卷在 mountinfo 不出现导致的健康检查误报。"
 }

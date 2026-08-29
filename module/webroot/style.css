@@ -11,12 +11,12 @@ header { display: flex; justify-content: space-between; align-items: flex-start;
 .eyebrow { margin: 0 0 4px; color: #13766f; font-size: 12px; font-weight: 800; letter-spacing: .16em; }
 h1 { margin: 0; font-size: 30px; letter-spacing: -.03em; }
 .subtitle { margin: 8px 0 0; color: #66717d; font-size: 14px; }
-button { min-height: 42px; padding: 0 16px; border: 1px solid #d7dde2; border-radius: 12px; color: inherit; background: #fff; font-weight: 700; }
+button { min-height: 32px; padding: 0 12px; border: 1px solid #d7dde2; border-radius: 8px; color: inherit; background: #fff; font-weight: 600; font-size: 13px; }
 button:active { transform: scale(.97); background: #edf2f3; }
-button:disabled { opacity: .55; }
+button:disabled { opacity: .45; }
 .icon-button { flex: 0 0 auto; }
 .grid { display: grid; gap: 14px; margin-top: 24px; }
-.card { padding: 18px; border: 1px solid #e1e5e8; border-radius: 18px; background: #fff; box-shadow: 0 8px 28px rgba(25, 42, 55, .06); }
+.card { padding: 16px; border: 1px solid #e1e5e8; border-radius: 16px; background: #fff; box-shadow: 0 8px 28px rgba(25, 42, 55, .06); }
 .wake-card { margin-top: 24px; }
 .card-title { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 h2 { margin: 0; font-size: 20px; }
@@ -26,17 +26,17 @@ h2 { margin: 0; font-size: 20px; }
 .status.warn { color: #c27a00; }
 .status.off { color: #84909b; }
 .url { min-height: 20px; margin: 16px 0; overflow-wrap: anywhere; color: #66717d; font-family: ui-monospace, monospace; font-size: 13px; }
-.addresses { display: grid; gap: 12px; margin: 16px 0; }
-.address-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px; border-radius: 12px; background: #f5f7f8; }
+.addresses { display: grid; gap: 12px; margin: 14px 0; }
+.address-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px; border-radius: 10px; background: #f5f7f8; }
 .address-text { min-width: 0; display: grid; gap: 4px; }
 .address-text span { color: #66717d; font-size: 12px; font-weight: 700; }
 .address-text code { overflow-wrap: anywhere; font-size: 13px; }
 .address-actions { flex: 0 0 auto; display: flex; gap: 8px; }
-.address-actions button { min-height: 36px; padding: 0 12px; }
-.actions { display: flex; gap: 10px; }
-.actions button { flex: 1; }
+.address-actions button { min-height: 30px; padding: 0 10px; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.actions button { flex: 1 1 auto; min-width: 0; }
 .wake-card .actions { flex-wrap: wrap; }
-.wake-card .actions button { min-width: 120px; }
+.wake-card .actions button { min-width: 100px; }
 .actions .primary { border-color: #13766f; color: #fff; background: #13766f; }
 .actions .danger { border-color: #d8b4b4; color: #a52f2f; }
 .no-url, .loading { color: #78838e; font-size: 14px; }

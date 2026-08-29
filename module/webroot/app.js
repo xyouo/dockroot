@@ -81,6 +81,7 @@ function render(rows) {
   list.innerHTML = rows.map(({ name, state, localUrl, lanUrl, autostart }) => {
     const [stateLabel, stateClass] = labels[state] || labels.stopped;
     const safeName = escapeHtml(name);
+    const isStopped = state === "stopped";
     const addresses = localUrl
       ? `${addressRow("本机", localUrl, "本机地址")}${addressRow("局域网", lanUrl, "局域网地址")}`
       : '<span class="no-url">未配置 HEALTH_URL</span>';
@@ -91,9 +92,11 @@ function render(rows) {
       </div>
       <div class="addresses">${addresses}</div>
       <div class="actions">
-        <button data-autostart="${safeName}" data-enabled="${autostart ? "1" : "0"}" type="button">开机自启：${autostart ? "开" : "关"}</button>
-        <button data-update="${safeName}" type="button">更新镜像</button>
-        <button class="danger" data-restart="${safeName}" type="button">重启</button>
+        <button data-up="${safeName}" ${isStopped ? "" : "disabled"} type="button">启动</button>
+        <button data-down="${safeName}" ${isStopped ? "disabled" : ""} type="button">停止</button>
+        <button data-restart="${safeName}" ${isStopped ? "disabled" : ""} type="button">重启</button>
+        <button data-update="${safeName}" type="button">更新</button>
+        <button data-autostart="${safeName}" data-enabled="${autostart ? "1" : "0"}" type="button">自启${autostart ? "开" : "关"}</button>
       </div>
     </article>`;
   }).join("");
@@ -176,6 +179,58 @@ async function restartStack(name, button) {
   }
 }
 
+async function upStack(name, button) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    toast("容器名称无效");
+    return;
+  }
+  const oldText = button.textContent;
+  let started = false;
+  button.disabled = true;
+  button.textContent = "启动中…";
+  notice.hidden = true;
+  try {
+    const result = await exec(`/data/adb/modules/dockroot/bin/drctl up ${name}`);
+    if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "启动失败");
+    started = true;
+    toast(`${name} 已启动`);
+  } catch (error) {
+    notice.textContent = error instanceof Error ? error.message : String(error);
+    notice.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
+    if (started) await refresh();
+  }
+}
+
+async function downStack(name, button) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    toast("容器名称无效");
+    return;
+  }
+  if (!window.confirm(`确定停止容器“${name}”吗？\n正在执行的任务或传输会被中断。`)) return;
+
+  const oldText = button.textContent;
+  let stopped = false;
+  button.disabled = true;
+  button.textContent = "停止中…";
+  notice.hidden = true;
+  try {
+    const result = await exec(`/data/adb/modules/dockroot/bin/drctl down ${name}`);
+    if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "停止失败");
+    stopped = true;
+    toast(`${name} 已停止`);
+  } catch (error) {
+    notice.textContent = error instanceof Error ? error.message : String(error);
+    notice.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
+    if (stopped) await refresh();
+  }
+}
+
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value);
@@ -246,6 +301,8 @@ list.addEventListener("click", (event) => {
   if (button.dataset.autostart) void toggleAutostart(button.dataset.autostart, button.dataset.enabled === "1", button);
   if (button.dataset.update) void updateStack(button.dataset.update, button);
   if (button.dataset.restart) void restartStack(button.dataset.restart, button);
+  if (button.dataset.up) void upStack(button.dataset.up, button);
+  if (button.dataset.down) void downStack(button.dataset.down, button);
 });
 refreshButton.addEventListener("click", () => void Promise.all([refresh(), refreshWake()]));
 wakeActions.addEventListener("click", (event) => {

@@ -489,7 +489,15 @@ port_is_listening() {
 
 volume_is_mounted() {
   name=$1
-  target=$2
+  volume=$2
+  source=${volume%%:*}
+  remainder=${volume#*:}
+  target=${remainder%%:*}
+  # ruri 的部分 bind 挂载不一定出现在 /proc/<pid>/mountinfo（例如文件型挂载）；
+  # 容器已运行且宿主机源路径存在时视为已挂载，避免健康检查误报。
+  if [ -n "$(container_pids "$name")" ] && [ -e "$source" ]; then
+    return 0
+  fi
   for pid in $(container_pids "$name"); do
     [ -r "/proc/$pid/mountinfo" ] || continue
     if awk -v target="$target" '$5 == target { found=1 } END { exit !found }' "/proc/$pid/mountinfo"; then
@@ -633,9 +641,7 @@ verify_stack_running() {
     healthy=1
     container_is_running "$name" || healthy=0
     for volume in $(stack_values "$name" VOLUME); do
-      remainder=${volume#*:}
-      target=${remainder%%:*}
-      volume_is_mounted "$name" "$target" || healthy=0
+      volume_is_mounted "$name" "$volume" || healthy=0
     done
     for port in $(stack_values "$name" CHECK_PORT); do
       port_is_listening "$port" || healthy=0
@@ -819,9 +825,8 @@ status_stack() {
   fi
   ok=1
   for volume in $(stack_values "$name" VOLUME); do
-    remainder=${volume#*:}
-    target=${remainder%%:*}
-    if volume_is_mounted "$name" "$target"; then
+    target=${volume#*:}; target=${target%%:*}
+    if volume_is_mounted "$name" "$volume"; then
       printf 'volume[%s]=mounted\n' "$target"
     else
       printf 'volume[%s]=missing\n' "$target"
@@ -871,9 +876,7 @@ stack_health_ok() {
   container_is_running "$name" || return 1
   required_files_ready "$name" >/dev/null 2>&1 || return 1
   for volume in $(stack_values "$name" VOLUME); do
-    remainder=${volume#*:}
-    target=${remainder%%:*}
-    volume_is_mounted "$name" "$target" || return 1
+    volume_is_mounted "$name" "$volume" || return 1
   done
   for port in $(stack_values "$name" CHECK_PORT); do
     port_is_listening "$port" || return 1
