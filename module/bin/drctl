@@ -1453,7 +1453,10 @@ set_stack_autostart() {
     { print }
     END { if (!found) print "AUTOSTART=" enabled }
   ' "$file" > "$temp" || { rm -f "$temp"; return 1; }
-  chmod 0600 "$temp" && mv -f "$temp" "$file" || { rm -f "$temp"; return 1; }
+  if ! chmod 0600 "$temp" || ! mv -f "$temp" "$file"; then
+    rm -f "$temp"
+    return 1
+  fi
   if [ "$enabled" = 1 ]; then
     autostart_add "$name" >/dev/null || return 1
     msg "已开启开机自启：$name（当前容器状态不变）"
