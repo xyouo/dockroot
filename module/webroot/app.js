@@ -90,9 +90,39 @@ function render(rows) {
         <span class="status ${stateClass}"><i></i>${stateLabel}</span>
       </div>
       <div class="addresses">${addresses}</div>
-      <div class="actions"><button class="danger" data-restart="${safeName}" type="button">重启</button></div>
+      <div class="actions">
+        <button data-update="${safeName}" type="button">更新镜像</button>
+        <button class="danger" data-restart="${safeName}" type="button">重启</button>
+      </div>
     </article>`;
   }).join("");
+}
+
+async function updateStack(name, button) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    toast("容器名称无效");
+    return;
+  }
+  if (!window.confirm(`确定更新容器“${name}”吗？\n会先下载新镜像，再短暂停止服务进行替换；验证失败会自动回滚。`)) return;
+
+  const oldText = button.textContent;
+  let updated = false;
+  button.disabled = true;
+  button.textContent = "更新中…";
+  notice.hidden = true;
+  try {
+    const result = await exec(`/data/adb/modules/dockroot/bin/drctl update ${name}`);
+    if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "更新失败");
+    updated = true;
+    toast(`${name} 已更新`);
+  } catch (error) {
+    notice.textContent = error instanceof Error ? error.message : String(error);
+    notice.hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = oldText;
+    if (updated) await refresh();
+  }
 }
 
 async function restartStack(name, button) {
@@ -189,6 +219,7 @@ list.addEventListener("click", (event) => {
   if (!button) return;
   if (button.dataset.copy) void copyText(button.dataset.copy);
   if (button.dataset.open) window.location.href = button.dataset.open;
+  if (button.dataset.update) void updateStack(button.dataset.update, button);
   if (button.dataset.restart) void restartStack(button.dataset.restart, button);
 });
 refreshButton.addEventListener("click", () => void Promise.all([refresh(), refreshWake()]));

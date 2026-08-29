@@ -1,7 +1,7 @@
 id=dockroot
 name=DockRoot 容器
-version=v0.8.0
-versionCode=800
+version=v0.8.1
+versionCode=801
 author=xyouo
-description=在已 Root 的 ARM64 Android 上运行 OCI/Docker 镜像，支持 Compose Lite、健康自愈与容器 WebUI 入口（实验性）
+description=在已 Root 的 ARM64 Android 上运行 OCI/Docker 镜像，支持 Compose Lite、安全更新回滚、健康自愈与容器 WebUI 入口（实验性）
 updateJson=https://raw.githubusercontent.com/xyouo/dockroot/main/update.json

@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.0",
-  "versionCode": 800,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.0/dockroot-v0.8.0.zip",
-  "changelog": "新增低耗电定时短唤醒：默认在 09:57、17:57 唤醒并保持 5 分钟；WebUI 可切换唤醒模式，并同时显示本机与当前私有局域网入口。"
+  "version": "v0.8.1",
+  "versionCode": 801,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.1/dockroot-v0.8.1.zip",
+  "changelog": "新增通用容器镜像更新：先下载、再短暂停机替换，启动或健康检查失败会自动回滚；WebUI 每个 Stack 增加“更新镜像”按钮。"
 }

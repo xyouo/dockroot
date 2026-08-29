@@ -346,10 +346,20 @@ apply_stack() {
         esac
         case "$source_path" in /*) ;; *) err "卷来源必须是绝对路径：$value"; return 1 ;; esac
         case "$target_path" in /*) ;; *) err "卷目标必须是绝对路径：$value"; return 1 ;; esac
-        mkdir -p "$source_path" || return 1
+        # 已存在的普通文件可直接作为 bind mount；不存在时仍按目录创建，
+        # 避免把常见的数据目录误判成文件。
+        if [ ! -e "$source_path" ]; then
+          mkdir -p "$source_path" || return 1
+        fi
         # 部分镜像（如 OpenList 4.1+）会在容器内切换到非 root UID。
         # 上级 /data/adb/dockroot 仍为 0700，放宽挂载点本身不会暴露给普通 Android 应用。
-        if [ "$volume_mode" = ro ]; then
+        if [ -f "$source_path" ]; then
+          if [ "$volume_mode" = ro ]; then
+            chmod 0644 "$source_path" 2>/dev/null || true
+          else
+            chmod 0666 "$source_path" 2>/dev/null || true
+          fi
+        elif [ "$volume_mode" = ro ]; then
           chmod 0755 "$source_path" 2>/dev/null || true
         else
           chmod 0777 "$source_path" 2>/dev/null || true
@@ -684,6 +694,98 @@ up_stack() {
   name=${1:-}
   valid_name "$name" || { err '请提供有效配置名'; return 1; }
   run_stack_locked up_stack_unlocked "$name"
+}
+
+rollback_updated_stack() {
+  stack_name=$1
+  current_path=$2
+  backup_path=$3
+  was_running=$4
+  stop_stack "$stack_name" >/dev/null 2>&1 || true
+  rm -rf "$current_path"
+  if ! mv "$backup_path" "$current_path"; then
+    err "新镜像启动失败，且旧版本目录恢复失败：$backup_path"
+    return 1
+  fi
+  if ! apply_stack "$stack_name"; then
+    err "旧版本目录已恢复，但配置重新应用失败：$stack_name"
+    return 1
+  fi
+  if [ "$was_running" = 1 ] && ! start_stack "$stack_name"; then
+    err "旧版本目录已恢复，但容器重新启动失败：$stack_name"
+    return 1
+  fi
+  msg "新镜像验证失败，已自动回滚旧版本：$stack_name"
+  return 1
+}
+
+update_stack_unlocked() {
+  stack_name=${1:-}
+  valid_name "$stack_name" || { err '请提供有效配置名'; return 1; }
+  ensure_state || return 1
+  load_config
+  file="$(stack_file "$stack_name")"
+  [ -r "$file" ] || { err "配置不存在：$file"; return 1; }
+  image="$(stack_values "$stack_name" IMAGE | head -n 1)"
+  [ -n "$image" ] || { err "配置缺少 IMAGE：$file"; return 1; }
+
+  current_path="$DATA_ROOT/$stack_name"
+  if [ ! -d "$current_path/rootfs" ]; then
+    msg "容器尚未安装，将按当前配置首次部署：$stack_name"
+    up_stack_unlocked "$stack_name"
+    return
+  fi
+
+  temp_name="${stack_name}-update-$$"
+  backup_name="${stack_name}-rollback-$$"
+  temp_path="$DATA_ROOT/$temp_name"
+  backup_path="$DATA_ROOT/$backup_name"
+  rm -rf "$temp_path" "$backup_path"
+  msg "正在后台下载新镜像，当前容器会继续运行：$stack_name"
+  if ! pull_image "$image" "$temp_name" || [ ! -d "$temp_path/rootfs" ]; then
+    rm -rf "$temp_path"
+    err "新镜像下载或解包失败，旧容器未受影响：$stack_name"
+    return 1
+  fi
+
+  was_running=0
+  container_is_running "$stack_name" && was_running=1
+  if ! stop_stack "$stack_name"; then
+    rm -rf "$temp_path"
+    return 1
+  fi
+  if ! mv "$current_path" "$backup_path"; then
+    rm -rf "$temp_path"
+    err "无法暂存旧版本目录：$current_path"
+    return 1
+  fi
+  if ! mv "$temp_path" "$current_path"; then
+    mv "$backup_path" "$current_path" 2>/dev/null || true
+    [ "$was_running" = 1 ] && { apply_stack "$stack_name" >/dev/null 2>&1 && start_stack "$stack_name" >/dev/null 2>&1 || true; }
+    err "无法替换新版本目录，已尝试恢复旧版本：$stack_name"
+    return 1
+  fi
+
+  if ! apply_stack "$stack_name"; then
+    rollback_updated_stack "$stack_name" "$current_path" "$backup_path" "$was_running"
+    return 1
+  fi
+  if [ "$was_running" = 1 ] && ! start_stack "$stack_name"; then
+    rollback_updated_stack "$stack_name" "$current_path" "$backup_path" "$was_running"
+    return 1
+  fi
+  rm -rf "$backup_path"
+  if [ "$was_running" = 1 ]; then
+    msg "镜像已更新，容器已恢复运行：$stack_name"
+  else
+    msg "镜像已更新；容器更新前为停止状态，因此保持停止：$stack_name"
+  fi
+}
+
+update_stack() {
+  name=${1:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  run_stack_locked update_stack_unlocked "$name"
 }
 
 down_stack() {
@@ -1401,6 +1503,7 @@ DockRoot 容器模块（实验性）
   up <配置名>                     应用配置并后台启动
   down <配置名>                   停止配置对应的容器
   restart <配置名>                重新应用配置并启动
+  update <配置名>                 下载最新镜像，验证失败时自动回滚
   status <配置名>                 查看进程、卷、端口和 HTTP 健康状态
   cleanup [--yes]                 预览/清理失败拉取残留
 
@@ -1425,6 +1528,7 @@ main() {
     up) up_stack "${1:-}" ;;
     down) down_stack "${1:-}" ;;
     restart) up_stack "${1:-}" ;;
+    update) update_stack "${1:-}" ;;
     status) status_stack "${1:-}" ;;
     cleanup) cleanup_state "${1:-preview}" ;;
     stack)

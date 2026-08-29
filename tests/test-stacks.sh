@@ -84,6 +84,40 @@ rm -rf "$DATA_ROOT/openlist/rootfs"
 apply_stack openlist
 grep -F 'pull_image <openlistteam/openlist:latest> <openlist>' "$calls"
 
+# 通用更新先拉取临时镜像，再替换；新镜像应用失败时恢复旧 rootfs。
+mkdir -p "$DATA_ROOT/openlist/rootfs"
+touch "$DATA_ROOT/openlist/rootfs/old-version"
+pull_image() {
+  printf 'pull_image <%s> <%s>\n' "$1" "$2" >> "$calls"
+  mkdir -p "$DATA_ROOT/$2/rootfs"
+  touch "$DATA_ROOT/$2/rootfs/new-version"
+}
+update_stack openlist
+test -f "$DATA_ROOT/openlist/rootfs/new-version"
+test ! -f "$DATA_ROOT/openlist/rootfs/old-version"
+test -z "$(find "$DATA_ROOT" -maxdepth 1 -type d -name 'openlist-rollback-*' -print -quit)"
+
+rm -rf "$DATA_ROOT/openlist/rootfs"
+mkdir -p "$DATA_ROOT/openlist/rootfs"
+touch "$DATA_ROOT/openlist/rootfs/old-version"
+pull_image() {
+  mkdir -p "$DATA_ROOT/$2/rootfs"
+  touch "$DATA_ROOT/$2/rootfs/new-version-fails"
+}
+run_dockroot() {
+  [ ! -f "$DATA_ROOT/openlist/rootfs/new-version-fails" ]
+}
+if update_stack openlist >/dev/null 2>&1; then
+  echo '新镜像应用失败时 update 不应返回成功' >&2
+  exit 1
+fi
+test -f "$DATA_ROOT/openlist/rootfs/old-version"
+test ! -f "$DATA_ROOT/openlist/rootfs/new-version-fails"
+test -z "$(find "$DATA_ROOT" -maxdepth 1 -type d -name 'openlist-rollback-*' -print -quit)"
+
+run_dockroot() { { printf 'run_dockroot'; printf ' <%s>' "$@"; printf '\n'; } >> "$calls"; }
+pull_image() { printf 'pull_image <%s> <%s>\n' "$1" "$2" >> "$calls"; }
+
 mkdir -p "$DATA_ROOT/incomplete"
 cleanup_state > "$temp_dir/preview"
 test -d "$DATA_ROOT/incomplete"
@@ -157,6 +191,7 @@ cat > "$STACK_DIR/secretapp.conf" <<EOF
 IMAGE=example/secretapp:latest
 AUTOSTART=0
 REQUIRED_FILE=$STATE_DIR/volumes/secretapp/token
+VOLUME=$STATE_DIR/volumes/secretapp/token:/app/token:ro
 EOF
 mkdir -p "$DATA_ROOT/secretapp/rootfs" "$STATE_DIR/volumes/secretapp"
 printf '%s\n' 'test-secret' | set_stack_secret secretapp >/dev/null
@@ -168,6 +203,8 @@ fi
 : > "$calls"
 apply_stack secretapp
 grep -F 'run_dockroot <run> <--renew>' "$calls"
+grep -F "<$STATE_DIR/volumes/secretapp/token:/app/token:ro>" "$calls"
+test -f "$STATE_DIR/volumes/secretapp/token"
 grep -F '<secretapp> <--> </bin/true>' "$calls"
 if grep -F 'test-secret' "$calls"; then
   echo '秘密内容不应出现在 DockRoot 命令参数中' >&2
