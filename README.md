@@ -1,51 +1,21 @@
 # DockRoot 容器
 
-这是一个适用于 KernelSU、APatch 和 Magisk 的实验性 Root 模块，用于在已 Root 的 ARM64 Android 设备上直接运行 OCI/Docker 镜像，不依赖额外的 Debian/Ubuntu chroot 模块。
+适用于 KernelSU、APatch 和 Magisk 的实验性 Root 模块，在已 Root 的 ARM64 Android 上直接运行 OCI/Docker 镜像，不依赖额外 chroot 模块。
 
-它不是完整 Docker Engine。DockRoot 会拉取 OCI/Docker 镜像、解包为 rootfs，再通过 ruri 启动。容器使用宿主网络，不支持 Docker bridge、`-p` 端口映射、Docker Compose 或 Docker API。
+不是完整 Docker Engine。DockRoot 拉取镜像后通过 ruri 解包运行，使用宿主网络，不支持 bridge、`-p` 端口映射、Docker Compose 或 Docker API。
 
-## 当前功能
+## 安装
 
-- 仅支持 ARM64 Android。
-- 从 DockRoot 上游下载运行环境并校验固定 SHA-256。
-- 拉取、运行、停止和查看容器。
-- 查看 ruri 原始运行日志。
-- 配置容器开机自启。
-- 每 5 分钟检查自启容器，连续 3 次失败后自动恢复，并限制故障循环。
-- 停止/重启时扫描容器 rootfs 并清理未纳入 DockRoot `ps` 的孤儿进程。
-- 对启动、重启、停止和自愈进行单 Stack 互斥，防止并发操作。
-- 提供 KernelSU WebUI，动态展示容器状态、打开面板和复制地址。
-- 使用 Compose Lite 配置文件声明镜像、卷、环境变量、自定义启动命令和自启策略。
-- 提供与具体应用无关的 Stack 初始化、复制和删除命令。
-- 附带 OpenList、青龙示例配置；示例不参与核心命令分支。
-- 输出架构、SELinux、文件系统和挂载环境诊断。
-- 通过独立 mount namespace 为 DockRoot 提供 DNS，不修改 Android 全局网络配置。
-- 卸载模块时保留容器数据，防止误删。
-
-模块不会在 Release 中重新分发 DockRoot/ruri 二进制。首次安装运行环境时，手机会直接访问第三方上游下载；DockRoot 仓库目前没有明确许可证，请自行判断是否接受。
-
-## 安装与首次测试
-
-刷入模块并重启手机，然后在 Termux 等终端执行：
+刷入模块并重启手机，然后测试：
 
 ```sh
 su -c 'drctl pull alpine:latest alpine'
 su -c 'drctl run alpine /bin/ash'
 ```
 
-`pull` 会在本机第一次使用时自动下载并校验运行环境。`doctor` 和 `install-runtime` 仅用于诊断或手动预安装，不是每次安装模块都必须执行。
+第一次 `pull` 会自动下载运行环境。`doctor`、`install-runtime` 仅用于诊断，不是每次安装必须执行。
 
-重启后模块会把 `drctl` 放入 root 命令路径，本文命令均使用 `su -c 'drctl …'` 的简洁写法。
-
-进入 Alpine 后可测试：
-
-```sh
-cat /etc/os-release
-uname -m
-exit
-```
-
-后台运行、查看状态和停止：
+后台运行、状态和停止：
 
 ```sh
 su -c 'drctl run -d alpine'
@@ -53,44 +23,38 @@ su -c 'drctl ps alpine'
 su -c 'drctl stop alpine'
 ```
 
-设置开机自启：
+开机自启：
 
 ```sh
 su -c 'drctl autostart add alpine'
 su -c 'drctl autostart list'
 ```
 
-## Compose Lite 固定配置
+## Compose Lite 配置
 
-每个容器使用一个容易备份和编辑的配置文件：
+每个容器对应一个固定配置文件：
 
 ```text
 /data/adb/dockroot/stacks/<容器名>.conf
 ```
 
-支持以下字段：
+常用字段：
 
-- `IMAGE=`：镜像名称，必填。
-- `AUTOSTART=0|1`：是否随手机开机启动。
-- `VOLUME=宿主绝对路径:容器绝对路径[:ro]`：可以重复填写。
-- `ENV=KEY=VALUE`：可以重复填写。
-- `HOSTNAME=`：可选容器主机名。
-- `WORKDIR=`：可选容器工作目录，必须是绝对路径。
-- `COMMAND=`：可选启动程序，必须是容器内绝对路径，只能填写一次。
-- `ARG=`：传给 `COMMAND` 的单个参数，可以重复填写；即使参数包含空格或 `=` 也不会经过 shell 展开。
-- `APPLY_COMMAND=`、`APPLY_ARG=`：可选的一次性应用命令。适用于没有 `/bin/true` 的 distroless 镜像。
-- `REQUIRED_FILE=`：启动前必须存在且非空的宿主机文件。
-- `CHECK_PORT=`：启动前检查冲突、启动后确认监听，可以重复填写。
-- `HEALTH_URL=`：启动后的本机 HTTP 健康检查地址。
-- `READY_URL=`：仅在 `status` 中显示外部连接是否就绪，不会因断网而终止仍在重连的进程。
-
-DockRoot 只有 host 网络，因此不支持 Compose 的 `ports`、独立网络、`depends_on` 等字段。镜像监听的端口会直接占用手机端口。
+| 字段 | 说明 |
+|---|---|
+| `IMAGE=` | 镜像名，必填 |
+| `AUTOSTART=0\|1` | 是否开机自启 |
+| `VOLUME=宿主:容器[:ro]` | 可重复，持久化数据 |
+| `ENV=KEY=VALUE` | 可重复，环境变量 |
+| `COMMAND=` / `ARG=` | 自定义启动命令和参数 |
+| `CHECK_PORT=` | 可重复，启动前后检查端口冲突/监听 |
+| `HEALTH_URL=` | 启动后的 HTTP 健康检查 |
+| `REQUIRED_FILE=` | 启动前必须存在的宿主机文件 |
 
 常用命令：
 
 ```sh
 su -c 'drctl stack list'
-su -c 'drctl stack path'
 su -c 'drctl stack init demo alpine:latest'
 su -c 'drctl stack examples'
 su -c 'drctl stack example openlist'
@@ -102,116 +66,35 @@ su -c 'drctl status openlist'
 su -c 'drctl logs openlist 100'
 ```
 
-`apply` 只拉取缺失镜像并更新固定配置，不会启动长期服务。`up` 会应用配置后后台启动。修改 `.conf` 后再次执行 `drctl up <容器名>` 即可生效。
+`apply` 只拉取缺失镜像并更新配置，不会启动服务。`up` 会应用配置并后台启动。修改 `.conf` 后再次执行 `drctl up <容器名>` 即可生效。
 
-### 通用 Stack 工作流
-
-任何 ARM64 镜像都可以先生成一份最小配置，不需要模块内置预设：
+任何 ARM64 镜像都能用：
 
 ```sh
 su -c 'drctl stack init whoami traefik/whoami:latest'
 ```
 
-生成 `/data/adb/dockroot/stacks/whoami.conf` 后，按镜像文档填写需要的 `VOLUME`、`ENV`、`COMMAND`、`ARG`、`CHECK_PORT` 和 `HEALTH_URL`，再执行：
+生成 `.conf` 后按镜像文档填写 `VOLUME`、`ENV`、`COMMAND`、`CHECK_PORT`、`HEALTH_URL`，再 `drctl up whoami`。
 
-```sh
-su -c 'drctl up whoami'
-```
-
-也可以把自己准备好的 `.conf` 直接放入 `/data/adb/dockroot/stacks`。除旧版 OpenList、青龙配置的兼容修正外，模块不会根据容器名称加入隐藏参数或修改业务配置。
-
-删除 Stack 配置：
+删除 Stack（只删配置，不删镜像和业务数据）：
 
 ```sh
 su -c 'drctl down whoami'
 su -c 'drctl stack remove whoami'
 ```
 
-`stack remove` 只删除 `.conf` 并移出自启列表，镜像 rootfs 和业务卷会保留，避免误删数据。
-
-### OpenList 标准完整版示例
-
-复制模块附带的示例：
+## 内置示例
 
 ```sh
-su -c 'drctl stack example openlist'
-su -c 'drctl up openlist'
+su -c 'drctl stack example openlist'   # OpenList，端口 5244
+su -c 'drctl stack example qinglong'   # 青龙，HTTP 5700 / gRPC 5501
 ```
 
-生成的 `/data/adb/dockroot/stacks/openlist.conf` 内容为：
+改端口直接编辑 `.conf` 里的 `ENV`、`CHECK_PORT` 和 `HEALTH_URL`，再 `drctl up <容器名>`。
 
-```ini
-IMAGE=openlistteam/openlist:latest
-AUTOSTART=1
-VOLUME=/data/adb/dockroot/volumes/openlist:/opt/openlist/data
-ENV=UMASK=022
-CHECK_PORT=5244
-HEALTH_URL=http://127.0.0.1:5244/
-```
+## 健康保活
 
-这里使用 OpenList 官方标准完整版 `latest`，不是 `lite` 精简版。OpenList 使用 host 网络，默认面板地址为 `http://127.0.0.1:5244`。业务配置和数据库保存在 `/data/adb/dockroot/volumes/openlist`，重新拉取镜像不会删除它们。
-
-DockRoot 当前版本在拉取时会丢失 `latest-aio` 等非 `latest` 标签，因此模块会拒绝静默拉错镜像。v0.2.0 创建的 OpenList 配置会在首次 `apply/up` 时自动迁移为实际已拉取的 `latest`。待上游修复标签处理后，再恢复 AIO 模板支持。
-
-OpenList 4.1 之后可能以容器内 UID 1001 运行。模块会放宽具体卷目录的权限以允许该用户写入；其上级 `/data/adb/dockroot` 仍保持仅 root 可访问。
-
-### 青龙面板示例
-
-先复制青龙示例：
-
-```sh
-su -c 'drctl stack example qinglong'
-```
-
-生成的 `/data/adb/dockroot/stacks/qinglong.conf` 默认使用 HTTP 5700、gRPC 5501：
-
-```ini
-IMAGE=whyour/qinglong:latest
-AUTOSTART=1
-HOSTNAME=qinglong
-VOLUME=/data/adb/dockroot/volumes/qinglong:/ql/data
-ENV=QlPort=5700
-ENV=QlGrpcPort=5501
-ENV=QlBaseUrl=/
-ENV=TZ=Asia/Shanghai
-CHECK_PORT=5700
-CHECK_PORT=5501
-HEALTH_URL=http://127.0.0.1:5700/api/health
-```
-
-如需改为 HTTP 5900，请在启动前同时修改 `ENV=QlPort`、对应的 `CHECK_PORT` 和 `HEALTH_URL`，然后执行：
-
-```sh
-su -c 'drctl up qinglong'
-```
-
-青龙使用 host 网络。模块会按配置检查端口冲突、HTTP 健康状态和持久化卷。青龙的配置、任务、日志和依赖保存在 `/data/adb/dockroot/volumes/qinglong`，覆盖升级模块或重新拉取镜像不会删除。
-
-旧版 `drctl stack create openlist`、`drctl stack create qinglong` 仍可使用，实际只是 `stack example` 的兼容别名；应用专用的端口参数已删除，端口统一在 `.conf` 中显式管理。
-
-## 可靠启动与状态检查
-
-`up`、`restart` 和开机自启共用同一套生命周期：
-
-1. 先检查 `REQUIRED_FILE`，缺失时保留当前正常实例。
-2. 停止旧实例并等待 PID 真正退出。
-3. 应用声明式配置。
-4. 检查所有 `CHECK_PORT` 是否被其他进程占用。
-5. 启动容器。
-6. 验证进程、每个持久化卷、端口和 `HEALTH_URL`。
-
-`READY_URL` 只用于 `status` 展示，不参与启动成败判断，适合 cloudflared 这类需要等待外部网络并能自行重连的服务。其他步骤失败都会返回非零退出码并说明原因，不再把“命令已发出”当成“容器启动成功”。诊断示例：
-
-```sh
-su -c 'drctl status openlist'
-su -c 'drctl status qinglong'
-```
-
-模块自身日志与容器 `ruri.log` 默认超过 1 MiB 后保留为 `.1` 并重新记录。阈值可在 `/data/adb/dockroot/config.env` 中通过 `MAX_LOG_SIZE_KB` 修改。
-
-### 健康保活与故障自愈
-
-模块只监控 `autostart.list` 中的容器。默认每 300 秒检查进程、持久化卷、`CHECK_PORT` 和 `HEALTH_URL`；连续 3 次失败才执行一次 `up`，自愈后 1800 秒内不会再次重启同一容器。正常容器不会被定时重启。
+模块监控 `autostart.list` 中的容器。默认每 300 秒检查一次，连续 3 次失败才自愈，自愈后 1800 秒内不会重复重启同一容器。
 
 ```ini
 HEALTHCHECK_ENABLE=1
@@ -220,16 +103,18 @@ HEALTHCHECK_FAILURES=3
 HEALTHCHECK_COOLDOWN=1800
 ```
 
-可在 `/data/adb/dockroot/config.env` 修改上述参数，也可执行 `su -c 'drctl healthcheck'` 手动检查一次。只在失败或自愈时记录 `/data/adb/dockroot/logs/healthcheck.log`。该功能可恢复崩溃或端口失效的容器，但 Android 深度休眠仍可能延迟检查本身，它不等于精确定时唤醒。
+可在 `/data/adb/dockroot/config.env` 修改，也可执行 `su -c 'drctl healthcheck'` 手动检查。
 
-如果青龙只在固定时刻需要准时运行，推荐定时短唤醒：
+### 定时唤醒
+
+如果只在固定时刻需要任务执行，用定时短唤醒代替全天持锁：
 
 ```sh
 su -c 'drctl wakelock scheduled'
 su -c 'drctl wakelock status'
 ```
 
-默认每天在 `09:57`、`17:57` 唤醒，并分别保持 300 秒，覆盖 `09:58`、`17:58` 启动且在整点抢兑的任务。可在 `/data/adb/dockroot/config.env` 修改：
+默认每天 `09:57`、`17:57` 唤醒 300 秒。可在 `config.env` 修改：
 
 ```ini
 SCHEDULED_WAKE=1
@@ -238,98 +123,49 @@ WAKE_HOLD_SECONDS=300
 WAKE_TIMEZONE=Asia/Shanghai
 ```
 
-定时助手使用内核 `CLOCK_REALTIME_ALARM`，不会覆盖 Android 的其他闹钟；等待期间不持有 CPU 唤醒锁，只有进入配置窗口才短时持锁。
+长期插电可开全天唤醒 `drctl wakelock on`，关闭用 `drctl wakelock off`。`on` 与 `scheduled` 互斥。
 
-如果设备作为长期插电服务器，仍可启用 CPU 全天持续唤醒：
+## 更新与升级
 
-```sh
-su -c 'drctl wakelock on'
-su -c 'drctl wakelock status'
-```
+模块通过标准 `update.json` 支持 KernelSU/APatch/Magisk 更新检测。更新 ZIP 只包含模块本身，运行环境、镜像、配置和业务卷在 `/data/adb/dockroot`，覆盖升级不会删除。
 
-关闭：
+更新单个容器镜像：
 
 ```sh
-su -c 'drctl wakelock off'
+su -c 'drctl update <容器名>'
 ```
 
-模式会持久保存并在开机时自动恢复。`on` 与 `scheduled` 互斥；`off` 会同时关闭两种模式。全天唤醒可防止 CPU 深度休眠，但会明显增加待机耗电，通常只建议长期插电设备使用。
+先完整下载新镜像，再短暂停机替换；失败会自动回滚到旧版本。
 
-### KernelSU 容器入口
+WebUI 在 KernelSU 模块详情页点击"打开"进入，动态展示容器状态、本机/局域网地址、重启按钮和开机自启开关。
 
-在 KernelSU 的模块详情中点击“打开”即可进入 DockRoot WebUI。页面会动态读取所有 Stack，显示容器健康状态，并为已配置 `HEALTH_URL` 的容器同时提供本机和局域网入口以及复制按钮。局域网入口只从 Wi-Fi、热点、以太网、USB 等接口选择 `10.x`、`172.16-31.x` 或 `192.168.x` 私网地址，不会展示蜂窝网络地址。每个 Stack 都会显示带二次确认的“重启”按钮，操作完成后自动刷新状态。例如设备地址为 `192.168.43.1` 时，`http://127.0.0.1:9057/api/health` 会生成本机入口 `http://127.0.0.1:9057` 和局域网入口 `http://192.168.43.1:9057`。
-
-## 模块更新
-
-模块提供标准 `update.json`，支持 KernelSU/APatch/Magisk 管理器的常规更新检测。更新 ZIP 只包含模块本身；运行环境、镜像、stack 配置和业务卷继续保存在 `/data/adb/dockroot`，覆盖升级不会删除。
-
-v0.8.2 在 WebUI 为每个 Stack 增加“开机自启：开/关”按钮。切换会同时更新 Stack 的 `AUTOSTART` 和自启列表，之后重新应用配置也不会反弹；开关不改变容器当前运行状态。
-
-v0.8.1 新增通用镜像安全更新：执行 `drctl update <配置名>` 或点击 WebUI 的“更新镜像”，会先完整下载新镜像，再短暂停机替换；若新版本无法应用、启动或通过健康检查，会自动恢复旧版本。更新前为停止状态的容器在更新后仍保持停止。
-
-v0.8.0 新增 Android arm64 内核定时唤醒助手，可在指定时间窗口短时唤醒 CPU，避免为了两个定时任务全天持锁；WebUI 同时显示本机与当前局域网入口。
-
-v0.7.2 修复重启时遗留容器孤儿进程、重复调度和生命周期并发问题，新增可选持久 CPU 唤醒锁。
-
-v0.7.1 为 WebUI 中的每个 Stack 增加带二次确认、过程反馈和完成后自动刷新的“重启”按钮。
-
-v0.7.0 增加通用健康保活、失败阈值与自愈冷却，并增加 KernelSU 容器入口 WebUI。
-
-v0.6.0 将 Stack 创建改为通用架构。已有 `/data/adb/dockroot/stacks/*.conf` 不会被示例覆盖并可继续工作；OpenList、青龙改为普通示例文件，Cloudflared 不再作为内置预设。以后新增容器通常只需创建或复制 `.conf`，不需要等待模块发布新版。
-
-v0.5.0 将内部模块 ID 从历史名称 `dockroot_ksu` 迁移为 `dockroot`。从 v0.4.1 或更早版本刷入 v0.5.0 时，安装脚本会复用原有 `/data/adb/dockroot` 数据，并将旧模块标记为待移除。安装完成到重启前，管理器短暂显示新旧两个模块属于正常现象；重启一次后只会保留新的 `dockroot` 模块。
-
-不要在迁移前手动移动或删除 `/data/adb/modules/dockroot_ksu`。镜像、容器、Stack、配置和业务卷从最早版本起就位于 `/data/adb/dockroot`，迁移不会复制大文件，也不会清空现有数据。如果旧模块原本已禁用，新模块会继承禁用状态。
-
-## 数据与配置
+## 数据位置
 
 - 配置：`/data/adb/dockroot/config.env`
 - 镜像和容器：`/data/adb/dockroot/data`
-- Compose Lite 配置：`/data/adb/dockroot/stacks`
-- 持久化业务数据：`/data/adb/dockroot/volumes`
+- Stack 配置：`/data/adb/dockroot/stacks`
+- 业务数据：`/data/adb/dockroot/volumes`
 - 自启列表：`/data/adb/dockroot/autostart.list`
-- 模块日志：`/data/adb/dockroot/logs/service.log`
+- 日志：`/data/adb/dockroot/logs/service.log`
 
-不要把容器 rootfs 放到 `/sdcard`。Android 共享存储不能正确保存 Linux 权限和符号链接。建议使用 `/data`，或者已正确挂载的 Ext4 外置存储。
+不要放 `/sdcard`，Android 共享存储无法正确保存 Linux 权限和符号链接。
 
-## 清理旧文件
-
-先预览模块能够安全识别的残留：
+清理失败拉取留下的残留：
 
 ```sh
-su -c 'drctl cleanup'
+su -c 'drctl cleanup'          # 预览
+su -c 'drctl cleanup --yes'    # 确认后删除
 ```
 
-确认列表后删除：
+## 限制
 
-```sh
-su -c 'drctl cleanup --yes'
-```
+- 容器接近特权运行，隔离能力不如标准 Docker。
+- 所有服务共享手机端口，需自行避免冲突。
+- Android Doze、厂商冻结可能延后任务或终止后台服务。
+- WebUI 需要 KernelSU/APatch；Magisk 环境可用全部命令行功能。
+- 上游二进制更新后若 SHA-256 变化，模块会拒绝执行，需仓库先更新校验值。
 
-该命令只删除两类内容：
+## 上游
 
-- `/data/adb/dockroot/data` 中没有 `rootfs` 的失败拉取目录，例如之前失败产生的 `alpine2`。
-- `/data/adb/dockroot/bin` 中遗留的 `.download.*` 下载残片。
-
-清理前还会校验 DockRoot 受管标记，并拒绝 `/`、`/data`、`/system` 等系统级 `DATA_ROOT`，避免误配置扩大删除范围。
-
-以下目录仍在使用，不应作为旧版本垃圾删除：
-
-- `/data/adb/dockroot/bin`：DockRoot 和 ruri 运行环境。
-- `/data/adb/dockroot/dns-etc`、`cacerts`：Android DNS 与 HTTPS 兼容环境。
-- `/data/adb/dockroot/data/<容器名>`：已拉取的容器 rootfs。
-- `/data/adb/dockroot/stacks`：固定配置。
-- `/data/adb/dockroot/volumes`：容器业务数据。
-
-## 重要限制
-
-- 容器接近特权运行，隔离能力不能与标准 Docker 相比。
-- 所有服务共享手机网络和端口，必须自行避免端口冲突。
-- Android 的 Doze、厂商后台冻结和温控策略可能延后任务或终止后台服务。
-- WebUI 需要支持模块 WebUI 的 KernelSU/APatch 管理器；Magisk 环境仍可使用全部命令行功能。
-- 如果上游二进制更新导致 SHA-256 改变，模块会拒绝执行未知文件，需要先在仓库更新校验值。
-
-## 上游项目
-
-- DockRoot：https://github.com/kspeeder/dockroot
-- ruri：https://github.com/RuriOSS/ruri
+- DockRoot: https://github.com/kspeeder/dockroot
+- ruri: https://github.com/RuriOSS/ruri
