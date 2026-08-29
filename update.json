@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.1",
-  "versionCode": 801,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.1/dockroot-v0.8.1.zip",
-  "changelog": "新增通用容器镜像更新：先下载、再短暂停机替换，启动或健康检查失败会自动回滚；WebUI 每个 Stack 增加“更新镜像”按钮。"
+  "version": "v0.8.2",
+  "versionCode": 802,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.2/dockroot-v0.8.2.zip",
+  "changelog": "WebUI 为每个 Stack 增加持久化的开机自启开关；切换时同步修改 Stack 配置和自启列表，不改变容器当前运行状态。"
 }

@@ -25,8 +25,8 @@ function escapeHtml(value) {
 
 function parseRows(output) {
   return output.trim().split("\n").filter(Boolean).map((line) => {
-    const [name = "", state = "stopped", localUrl = "", lanUrl = ""] = line.split("\t");
-    return { name, state, localUrl, lanUrl };
+    const [name = "", state = "stopped", localUrl = "", lanUrl = "", autostart = "0"] = line.split("\t");
+    return { name, state, localUrl, lanUrl, autostart: autostart === "1" };
   });
 }
 
@@ -78,7 +78,7 @@ function render(rows) {
     list.innerHTML = '<div class="loading">暂无 Stack 配置。</div>';
     return;
   }
-  list.innerHTML = rows.map(({ name, state, localUrl, lanUrl }) => {
+  list.innerHTML = rows.map(({ name, state, localUrl, lanUrl, autostart }) => {
     const [stateLabel, stateClass] = labels[state] || labels.stopped;
     const safeName = escapeHtml(name);
     const addresses = localUrl
@@ -91,11 +91,35 @@ function render(rows) {
       </div>
       <div class="addresses">${addresses}</div>
       <div class="actions">
+        <button data-autostart="${safeName}" data-enabled="${autostart ? "1" : "0"}" type="button">开机自启：${autostart ? "开" : "关"}</button>
         <button data-update="${safeName}" type="button">更新镜像</button>
         <button class="danger" data-restart="${safeName}" type="button">重启</button>
       </div>
     </article>`;
   }).join("");
+}
+
+async function toggleAutostart(name, enabled, button) {
+  if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
+    toast("容器名称无效");
+    return;
+  }
+  const turnOn = !enabled;
+  const oldText = button.textContent;
+  button.disabled = true;
+  button.textContent = "设置中…";
+  notice.hidden = true;
+  try {
+    const result = await exec(`/data/adb/modules/dockroot/bin/drctl autostart set ${name} ${turnOn ? "on" : "off"}`);
+    if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "设置失败");
+    toast(`已${turnOn ? "开启" : "关闭"} ${name} 的开机自启；当前运行状态不变`);
+    await refresh();
+  } catch (error) {
+    notice.textContent = error instanceof Error ? error.message : String(error);
+    notice.hidden = false;
+    button.disabled = false;
+    button.textContent = oldText;
+  }
 }
 
 async function updateStack(name, button) {
@@ -219,6 +243,7 @@ list.addEventListener("click", (event) => {
   if (!button) return;
   if (button.dataset.copy) void copyText(button.dataset.copy);
   if (button.dataset.open) window.location.href = button.dataset.open;
+  if (button.dataset.autostart) void toggleAutostart(button.dataset.autostart, button.dataset.enabled === "1", button);
   if (button.dataset.update) void updateStack(button.dataset.update, button);
   if (button.dataset.restart) void restartStack(button.dataset.restart, button);
 });

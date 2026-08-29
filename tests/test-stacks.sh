@@ -323,6 +323,20 @@ if grep -Fx remove-me "$AUTOSTART_FILE"; then
   exit 1
 fi
 
+# WebUI 使用的自启开关必须同时持久化 Stack 和自启列表，且不停止当前容器。
+running=1
+set_stack_autostart openlist off >/dev/null
+grep -Fx 'AUTOSTART=0' "$STACK_DIR/openlist.conf"
+if grep -Fx openlist "$AUTOSTART_FILE"; then
+  echo '关闭自启后不应保留在自启列表' >&2
+  exit 1
+fi
+test "$running" = 1
+set_stack_autostart openlist on >/dev/null
+grep -Fx 'AUTOSTART=1' "$STACK_DIR/openlist.conf"
+grep -Fx openlist "$AUTOSTART_FILE"
+test "$running" = 1
+
 run_failed=1
 if start_stack openlist >/dev/null 2>&1; then
   echo '底层启动失败时 start_stack 不应返回成功' >&2
@@ -373,5 +387,5 @@ stack_health_ok() {
 }
 device_lan_ipv4() { printf '192.168.43.1\n'; }
 web_status > "$temp_dir/web-status"
-grep -F $'dashboard\thealthy\thttp://127.0.0.1:8123\thttp://192.168.43.1:8123' "$temp_dir/web-status"
-grep -F $'openlist\tunhealthy\thttp://127.0.0.1:5244\thttp://192.168.43.1:5244' "$temp_dir/web-status"
+grep -F $'dashboard\thealthy\thttp://127.0.0.1:8123\thttp://192.168.43.1:8123\t1' "$temp_dir/web-status"
+grep -F $'openlist\tunhealthy\thttp://127.0.0.1:5244\thttp://192.168.43.1:5244\t1' "$temp_dir/web-status"

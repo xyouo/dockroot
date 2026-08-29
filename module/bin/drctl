@@ -1177,7 +1177,9 @@ web_status() {
     fi
     public_url="$(stack_public_url "$name")"
     lan_url="$(stack_lan_url "$public_url" "$lan_ip")"
-    printf '%s\t%s\t%s\t%s\n' "$name" "$state" "$public_url" "$lan_url"
+    autostart="$(stack_values "$name" AUTOSTART | head -n 1)"
+    [ "$autostart" = 1 ] || autostart=0
+    printf '%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$public_url" "$lan_url" "$autostart"
   done
 }
 
@@ -1432,6 +1434,35 @@ autostart_list() {
   sed '/^[[:space:]]*$/d' "$AUTOSTART_FILE"
 }
 
+set_stack_autostart() {
+  name=${1:-}
+  mode=${2:-}
+  valid_name "$name" || { err '请提供有效配置名'; return 1; }
+  case "$mode" in
+    1|on|enable|enabled) enabled=1 ;;
+    0|off|disable|disabled) enabled=0 ;;
+    *) err '用法：autostart set <配置名> on|off'; return 1 ;;
+  esac
+  ensure_state || return 1
+  file="$(stack_file "$name")"
+  [ -r "$file" ] || { err "配置不存在：$file"; return 1; }
+  temp="$file.tmp.$$"
+  awk -F= -v enabled="$enabled" '
+    BEGIN { found=0 }
+    $1 == "AUTOSTART" { print "AUTOSTART=" enabled; found=1; next }
+    { print }
+    END { if (!found) print "AUTOSTART=" enabled }
+  ' "$file" > "$temp" || { rm -f "$temp"; return 1; }
+  chmod 0600 "$temp" && mv -f "$temp" "$file" || { rm -f "$temp"; return 1; }
+  if [ "$enabled" = 1 ]; then
+    autostart_add "$name" >/dev/null || return 1
+    msg "已开启开机自启：$name（当前容器状态不变）"
+  else
+    autostart_remove "$name" >/dev/null || return 1
+    msg "已关闭开机自启：$name（当前容器仍会继续运行）"
+  fi
+}
+
 boot() {
   ensure_state || exit 1
   load_config
@@ -1495,6 +1526,7 @@ DockRoot 容器模块（实验性）
   logs <容器名> [行数]            查看容器日志
   autostart add <容器名>           加入开机自启
   autostart remove <容器名>        移除开机自启
+  autostart set <配置名> on|off    持久修改 Stack 的开机自启
   autostart list                  查看开机自启列表
   stack init <配置名> <镜像>            创建与具体应用无关的通用配置
   stack examples                       列出模块附带的示例配置
@@ -1572,8 +1604,9 @@ main() {
       case "$sub" in
         add) autostart_add "${1:-}" ;;
         remove|rm) autostart_remove "${1:-}" ;;
+        set) set_stack_autostart "${1:-}" "${2:-}" ;;
         list) autostart_list ;;
-        *) err '可用子命令：add、remove、list'; return 1 ;;
+        *) err '可用子命令：add、remove、set、list'; return 1 ;;
       esac
       ;;
     *) err "未知命令：$command"; usage >&2; return 1 ;;
