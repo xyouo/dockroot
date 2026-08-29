@@ -761,7 +761,11 @@ update_stack_unlocked() {
   fi
   if ! mv "$temp_path" "$current_path"; then
     mv "$backup_path" "$current_path" 2>/dev/null || true
-    [ "$was_running" = 1 ] && { apply_stack "$stack_name" >/dev/null 2>&1 && start_stack "$stack_name" >/dev/null 2>&1 || true; }
+    if [ "$was_running" = 1 ]; then
+      if apply_stack "$stack_name" >/dev/null 2>&1; then
+        start_stack "$stack_name" >/dev/null 2>&1 || true
+      fi
+    fi
     err "无法替换新版本目录，已尝试恢复旧版本：$stack_name"
     return 1
   fi
