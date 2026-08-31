@@ -923,6 +923,15 @@ healthcheck_stack() {
 
   printf '%s\n' "$now" > "$recovery_file"
   msg "连续健康检查失败，正在自动恢复：$name"
+  # 优先复用已生成的 ruri.conf 直接重启。容器异常退出时配置通常
+  # 没有改变，此路径不需要重新 apply，也避免文件型 bind mount 被
+  # DockRoot 再次准备时失败。只有直接重启不成功才回退到完整 apply。
+  if run_stack_locked start_stack "$name"; then
+    printf '0\n' > "$failures_file"
+    msg "自动恢复成功：$name"
+    return 0
+  fi
+  msg "直接重启失败，尝试重新应用配置：$name"
   if up_stack "$name"; then
     printf '0\n' > "$failures_file"
     msg "自动恢复成功：$name"

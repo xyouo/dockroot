@@ -358,8 +358,14 @@ HEALTHCHECK_COOLDOWN=1800
 mkdir -p "$HEALTH_STATE_DIR"
 stack_healthy=0
 restart_count=0
+apply_recovery_count=0
 stack_health_ok() { [ "$stack_healthy" = 1 ]; }
-up_stack() { restart_count=$((restart_count + 1)); stack_healthy=1; }
+run_stack_locked() {
+  test "$1" = start_stack
+  restart_count=$((restart_count + 1))
+  stack_healthy=1
+}
+up_stack() { apply_recovery_count=$((apply_recovery_count + 1)); stack_healthy=1; }
 now_epoch() { echo 2000; }
 
 healthcheck_stack openlist >/dev/null || true
@@ -367,6 +373,17 @@ healthcheck_stack openlist >/dev/null || true
 test "$restart_count" = 0
 healthcheck_stack openlist >/dev/null
 test "$restart_count" = 1
+test "$apply_recovery_count" = 0
+test "$(cat "$HEALTH_STATE_DIR/openlist.failures")" = 0
+
+# 已有配置无法直接重启时，才重新 apply 配置。
+stack_healthy=0
+printf '2\n' > "$HEALTH_STATE_DIR/openlist.failures"
+printf '0\n' > "$HEALTH_STATE_DIR/openlist.recovery"
+run_stack_locked() { restart_count=$((restart_count + 1)); return 1; }
+healthcheck_stack openlist >/dev/null
+test "$restart_count" = 2
+test "$apply_recovery_count" = 1
 test "$(cat "$HEALTH_STATE_DIR/openlist.failures")" = 0
 
 stack_healthy=1

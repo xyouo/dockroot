@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.3",
-  "versionCode": 803,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.3/dockroot-v0.8.3.zip",
-  "changelog": "WebUI 增加每个容器的启动/停止按钮并整体压缩按钮；修复部分 bind 卷在 mountinfo 不出现导致的健康检查误报。"
+  "version": "v0.8.4",
+  "versionCode": 804,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.4/dockroot-v0.8.4.zip",
+  "changelog": "自动恢复优先复用已生成的容器配置，避免文件型 bind mount 在重新应用配置时阻断恢复；失败时仍会回退到完整应用配置。"
 }
