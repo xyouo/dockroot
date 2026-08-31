@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 测试会动态覆盖已 source 脚本中的适配函数。
-# shellcheck disable=SC1091,SC2034,SC2317
+# shellcheck disable=SC1091,SC2034,SC2218,SC2317
 
 set -euo pipefail
 
