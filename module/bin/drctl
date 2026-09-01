@@ -1127,6 +1127,7 @@ wakelock_command() {
       printf 'scheduler=%s\n' "$(scheduled_wake_is_active && echo yes || echo no)"
       printf 'scheduled_lock=%s\n' "$(scheduled_wakelock_is_active && echo yes || echo no)"
       [ -r "$WAKEALARM_STATUS_FILE" ] && cat "$WAKEALARM_STATUS_FILE"
+      return 0
       ;;
     *) err '用法：wakelock on|scheduled|off|status'; return 1 ;;
   esac

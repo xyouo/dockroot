@@ -68,6 +68,16 @@ grep -Fx "$WAKELOCK_TAG" "$POWER_ROOT/wake_lock"
 release_wakelock
 grep -Fx "$WAKELOCK_TAG" "$POWER_ROOT/wake_unlock"
 
+# 全天/关闭模式没有 wakealarm.status，状态查询仍必须成功，供 WebUI 正常读取。
+KEEP_AWAKE=1
+SCHEDULED_WAKE=0
+WAKEALARM_STATUS_FILE="$STATE_DIR/missing-wakealarm.status"
+if ! wakelock_command status > "$temp_dir/wakelock-status"; then
+  echo '缺少定时唤醒状态文件时，wakelock status 不应失败' >&2
+  exit 1
+fi
+grep -Fx 'mode=continuous' "$temp_dir/wakelock-status"
+
 apply_stack openlist
 grep -F 'run_dockroot <run> <--renew> <-v>' "$calls"
 grep -F "<$STATE_DIR/volumes/openlist:/opt/openlist/data>" "$calls"
