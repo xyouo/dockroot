@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.6",
-  "versionCode": 806,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.6/dockroot-v0.8.6.zip",
-  "changelog": "自动恢复优先复用已生成的容器配置，避免文件型 bind mount 在重新应用配置时阻断恢复；失败时仍会回退到完整应用配置。"
+  "version": "v0.8.7",
+  "versionCode": 807,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.7/dockroot-v0.8.7.zip",
+  "changelog": "修复全天唤醒和关闭模式下状态命令误返回失败，导致 WebUI 右上角一直显示读取失败的问题。"
 }
