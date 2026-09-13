@@ -13,6 +13,53 @@ const labels = {
   stopped: ["已停止", "off"],
 };
 
+function setBusy(button, text, timeoutMs) {
+  if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
+  button.classList.add("busy");
+  button.disabled = true;
+  if (text) button.textContent = text;
+  clearTimeout(Number(button.dataset.busyTimer || "0"));
+  if (timeoutMs) {
+    const timer = setTimeout(() => setIdle(button), timeoutMs);
+    button.dataset.busyTimer = String(timer);
+  }
+}
+
+function setIdle(button) {
+  clearTimeout(Number(button.dataset.busyTimer || "0"));
+  delete button.dataset.busyTimer;
+  clearTimeout(Number(button.dataset.doneTimer || "0"));
+  delete button.dataset.doneTimer;
+  button.classList.remove("busy");
+  button.disabled = false;
+  if (button.dataset.idleText) button.textContent = button.dataset.idleText;
+}
+
+function flashDone(button, text) {
+  if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
+  const label = button.dataset.idleText;
+  clearTimeout(Number(button.dataset.doneTimer || "0"));
+  button.classList.add("done");
+  button.textContent = text;
+  const timer = setTimeout(() => {
+    if (!button.isConnected) return;
+    button.classList.remove("done");
+    button.textContent = label;
+  }, 1200);
+  button.dataset.doneTimer = String(timer);
+}
+
+function showNotice(message, ok = false) {
+  notice.textContent = message;
+  notice.classList.toggle("ok", ok);
+  notice.hidden = false;
+}
+
+function hideNotice() {
+  notice.hidden = true;
+  notice.classList.remove("ok");
+}
+
 function escapeHtml(value) {
   return value.replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;",
@@ -57,7 +104,9 @@ function renderWake(values) {
     wakeDetail.textContent = "未主动唤醒 CPU，设备休眠时任务可能延迟。";
   }
   wakeActions.querySelectorAll("button").forEach((button) => {
-    button.disabled = button.dataset.wake === mode;
+    const current = button.dataset.wake === mode;
+    button.disabled = current;
+    button.title = current ? "当前已是该模式" : "切换到该唤醒模式";
   });
 }
 
@@ -92,11 +141,11 @@ function render(rows) {
       </div>
       <div class="addresses">${addresses}</div>
       <div class="actions">
-        <button data-up="${safeName}" ${isStopped ? "" : "disabled"} type="button">启动</button>
-        <button data-down="${safeName}" ${isStopped ? "disabled" : ""} type="button">停止</button>
-        <button data-restart="${safeName}" ${isStopped ? "disabled" : ""} type="button">重启</button>
-        <button data-update="${safeName}" type="button">更新</button>
-        <button data-autostart="${safeName}" data-enabled="${autostart ? "1" : "0"}" type="button">自启${autostart ? "开" : "关"}</button>
+        <button data-up="${safeName}" ${isStopped ? "" : "disabled"} title="${isStopped ? "启动并等待健康检查" : "容器已在运行"}" type="button">启动</button>
+        <button data-down="${safeName}" ${isStopped ? "disabled" : ""} title="${isStopped ? "容器已停止" : "停止容器"}" type="button">停止</button>
+        <button data-restart="${safeName}" ${isStopped ? "disabled" : ""} title="${isStopped ? "容器已停止" : "重新应用配置并启动"}" type="button">重启</button>
+        <button data-update="${safeName}" title="拉取最新镜像，失败自动回滚" type="button">更新</button>
+        <button data-autostart="${safeName}" data-enabled="${autostart ? "1" : "0"}" title="切换开机自启" type="button">自启${autostart ? "开" : "关"}</button>
       </div>
     </article>`;
   }).join("");
@@ -108,20 +157,17 @@ async function toggleAutostart(name, enabled, button) {
     return;
   }
   const turnOn = !enabled;
-  const oldText = button.textContent;
-  button.disabled = true;
-  button.textContent = "设置中…";
-  notice.hidden = true;
+  setBusy(button, "设置中…", 30000);
+  hideNotice();
   try {
     const result = await exec(`/data/adb/modules/dockroot/bin/drctl autostart set ${name} ${turnOn ? "on" : "off"}`);
     if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "设置失败");
     toast(`已${turnOn ? "开启" : "关闭"} ${name} 的开机自启；当前运行状态不变`);
+    setIdle(button);
     await refresh();
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
-    button.disabled = false;
-    button.textContent = oldText;
+    setIdle(button);
+    showNotice(error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -132,22 +178,18 @@ async function updateStack(name, button) {
   }
   if (!window.confirm(`确定更新容器“${name}”吗？\n会先下载新镜像，再短暂停止服务进行替换；验证失败会自动回滚。`)) return;
 
-  const oldText = button.textContent;
   let updated = false;
-  button.disabled = true;
-  button.textContent = "更新中…";
-  notice.hidden = true;
+  setBusy(button, "更新中…", 300000);
+  hideNotice();
   try {
     const result = await exec(`/data/adb/modules/dockroot/bin/drctl update ${name}`);
     if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "更新失败");
     updated = true;
     toast(`${name} 已更新`);
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
+    showNotice(error instanceof Error ? error.message : String(error));
   } finally {
-    button.disabled = false;
-    button.textContent = oldText;
+    setIdle(button);
     if (updated) await refresh();
   }
 }
@@ -159,22 +201,18 @@ async function restartStack(name, button) {
   }
   if (!window.confirm(`确定重启容器“${name}”吗？\n正在执行的任务或传输会被中断。`)) return;
 
-  const oldText = button.textContent;
   let restarted = false;
-  button.disabled = true;
-  button.textContent = "重启中…";
-  notice.hidden = true;
+  setBusy(button, "重启中…", 180000);
+  hideNotice();
   try {
     const result = await exec(`/data/adb/modules/dockroot/bin/drctl restart ${name}`);
     if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "重启失败");
     restarted = true;
     toast(`${name} 已重启`);
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
+    showNotice(error instanceof Error ? error.message : String(error));
   } finally {
-    button.disabled = false;
-    button.textContent = oldText;
+    setIdle(button);
     if (restarted) await refresh();
   }
 }
@@ -184,22 +222,18 @@ async function upStack(name, button) {
     toast("容器名称无效");
     return;
   }
-  const oldText = button.textContent;
   let started = false;
-  button.disabled = true;
-  button.textContent = "启动中…";
-  notice.hidden = true;
+  setBusy(button, "启动中…", 180000);
+  hideNotice();
   try {
     const result = await exec(`/data/adb/modules/dockroot/bin/drctl up ${name}`);
     if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "启动失败");
     started = true;
     toast(`${name} 已启动`);
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
+    showNotice(error instanceof Error ? error.message : String(error));
   } finally {
-    button.disabled = false;
-    button.textContent = oldText;
+    setIdle(button);
     if (started) await refresh();
   }
 }
@@ -211,27 +245,23 @@ async function downStack(name, button) {
   }
   if (!window.confirm(`确定停止容器“${name}”吗？\n正在执行的任务或传输会被中断。`)) return;
 
-  const oldText = button.textContent;
   let stopped = false;
-  button.disabled = true;
-  button.textContent = "停止中…";
-  notice.hidden = true;
+  setBusy(button, "停止中…", 120000);
+  hideNotice();
   try {
     const result = await exec(`/data/adb/modules/dockroot/bin/drctl down ${name}`);
     if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "停止失败");
     stopped = true;
     toast(`${name} 已停止`);
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
+    showNotice(error instanceof Error ? error.message : String(error));
   } finally {
-    button.disabled = false;
-    button.textContent = oldText;
+    setIdle(button);
     if (stopped) await refresh();
   }
 }
 
-async function copyText(value) {
+async function copyText(value, button) {
   try {
     await navigator.clipboard.writeText(value);
   } catch {
@@ -242,6 +272,7 @@ async function copyText(value) {
     document.execCommand("copy");
     input.remove();
   }
+  if (button) flashDone(button, "已复制");
   toast("地址已复制");
 }
 
@@ -259,45 +290,43 @@ async function refreshWake() {
 
 async function setWakeMode(mode, button) {
   if (mode === "on" && !window.confirm("全天唤醒会明显增加待机耗电，确定继续吗？")) return;
-  const oldText = button.textContent;
-  button.disabled = true;
-  button.textContent = "设置中…";
+  setBusy(button, "设置中…", 30000);
+  hideNotice();
   try {
     const result = await exec(`/data/adb/modules/dockroot/bin/drctl wakelock ${mode}`);
     if (result.errno !== 0) throw new Error(result.stderr || result.stdout || "设置失败");
     toast("唤醒模式已更新");
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
+    showNotice(error instanceof Error ? error.message : String(error));
   } finally {
-    button.textContent = oldText;
+    setIdle(button);
     await refreshWake();
   }
 }
 
 async function refresh() {
-  refreshButton.disabled = true;
-  refreshButton.textContent = "刷新中…";
-  notice.hidden = true;
+  setBusy(refreshButton, "刷新中…", 60000);
+  hideNotice();
   try {
     const result = await exec("/data/adb/modules/dockroot/bin/drctl web-status");
     if (result.errno !== 0) throw new Error(result.stderr || "状态读取失败");
     render(parseRows(result.stdout));
   } catch (error) {
-    notice.textContent = error instanceof Error ? error.message : String(error);
-    notice.hidden = false;
+    showNotice(error instanceof Error ? error.message : String(error));
     list.innerHTML = '<div class="loading">无法读取容器状态。</div>';
   } finally {
-    refreshButton.disabled = false;
-    refreshButton.textContent = "刷新";
+    setIdle(refreshButton);
   }
 }
 
 list.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
-  if (button.dataset.copy) void copyText(button.dataset.copy);
-  if (button.dataset.open) window.location.href = button.dataset.open;
+  if (button.dataset.copy) void copyText(button.dataset.copy, button);
+  if (button.dataset.open) {
+    flashDone(button, "正在打开…");
+    window.location.href = button.dataset.open;
+  }
   if (button.dataset.autostart) void toggleAutostart(button.dataset.autostart, button.dataset.enabled === "1", button);
   if (button.dataset.update) void updateStack(button.dataset.update, button);
   if (button.dataset.restart) void restartStack(button.dataset.restart, button);
