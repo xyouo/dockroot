@@ -1,6 +1,6 @@
 {
-  "version": "v0.8.7",
-  "versionCode": 807,
-  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.7/dockroot-v0.8.7.zip",
-  "changelog": "修复全天唤醒和关闭模式下状态命令误返回失败，导致 WebUI 右上角一直显示读取失败的问题。"
+  "version": "v0.8.8",
+  "versionCode": 808,
+  "zipUrl": "https://github.com/xyouo/dockroot/releases/download/v0.8.8/dockroot-v0.8.8.zip",
+  "changelog": "WebUI 按钮状态更明显：执行中显示转圈与进度文案，复制/打开有即时反馈；修复唤醒按钮在状态刷新失败后永久禁用的卡死问题。"
 }

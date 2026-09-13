@@ -10,7 +10,7 @@ on:
       version:
         description: 模块版本（不含 v）
         required: false
-        default: 0.8.7
+        default: 0.8.8
 
 permissions:
   contents: read
